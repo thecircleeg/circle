@@ -71,6 +71,7 @@ function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
 function uid(){return Math.random().toString(36).slice(2,8);}
 function parse(t){return t.split(/[,\n،]+/).map(function(s){return cap(s.trim());}).filter(Boolean);}
 function num(c){return parseInt(c.slice(2),10)||0;}
+function parseList(t){var out=[],cur=null;t.split(/\r?\n/).forEach(function(l){l=l.replace(/[{}]/g,"").trim();if(!l)return;var m=l.match(/^G-?\s*(\d+)\s*:?$/i);if(m){cur={code:"G-"+m[1],names:[]};out.push(cur);}else if(cur){cur.names.push(cap(l));}});return out.filter(function(g){return g.names.length;});}
 function all(){return Object.keys(G).map(function(c){return G[c];}).sort(function(a,b){return num(a.code)-num(b.code);});}
 function isIn(g,x){var a=A[g.code];return!!(a&&a.in&&a.in[x.id]);}
 function arrived(g){return g.names.filter(function(x){return isIn(g,x);}).length;}
@@ -110,14 +111,14 @@ function addView(){
 function listView(){
   var ql=q.toLowerCase(),gs=all().reverse().filter(function(g){return!ql||g.code.toLowerCase().indexOf(ql)>-1||g.names.some(function(x){return x.n.toLowerCase().indexOf(ql)>-1;});});
   var total=0,inn=0;all().forEach(function(g){total+=g.names.length;inn+=arrived(g);});
-  return'<div class="card"><div class="row" style="margin-top:0"><input id="q" class="sp" placeholder="Search code or name" value="'+esc(q)+'"><button class="g" data-a="scan">Scan QR</button></div>'+(admin?'<div class="row"><button class="g sp" data-a="copylist">Copy master list</button></div>':'')+
-  '<div class="muted" style="margin:10px 0 4px">'+gs.length+' groups · '+inn+'/'+total+' guests arrived</div>'+
+  return(admin?'<div class="card"><div class="big">'+total+'</div><div class="muted">total guests · '+all().length+' reservations · '+inn+' arrived</div></div>':'')+'<div class="card"><div class="row" style="margin-top:0"><input id="q" class="sp" placeholder="Search code or name" value="'+esc(q)+'"><button class="g" data-a="scan">Scan QR</button></div>'+(admin?'<div class="row"><button class="g sp" data-a="copylist">Copy master list</button></div>':'')+
+  '<div class="muted" style="margin:10px 0 4px">'+gs.length+' groups'+(admin?' · '+inn+'/'+total+' guests arrived':'')+'</div>'+
   (gs.length?gs.map(function(g){return'<div class="g-row" data-a="open" data-c="'+g.code+'"><div class="t"><span class="code">'+g.code+'</span><span class="muted">'+arrived(g)+'/'+g.names.length+' arrived</span></div><div>'+g.names.map(function(x){return esc(x.n);}).join(", ")+'</div></div>';}).join(""):'<div class="muted" style="text-align:center;padding:14px">No groups</div>')+'</div>';
 }
 function setView(){
   return'<div class="card"><label>Next group number</label><input id="nx" type="number" inputmode="numeric" value="'+ST.next+'">'+
   '<label style="margin-top:12px">Message template ({code} and {guests} get filled in)</label><textarea id="tpl" style="min-height:170px">'+esc(ST.tpl)+'</textarea>'+
-  '<div class="row"><button class="g" data-a="tplreset">Reset template</button><span class="sp"></span><button class="d" data-a="clear">Start new day</button></div></div>';
+  '<div class="row"><button class="g" data-a="tplreset">Reset template</button><span class="sp"></span><button class="d" data-a="clear">Start new day</button></div></div>'+'<div class="card"><label>Import a list (code like G-45 on its own line, then one name per line, blank line between groups)</label><textarea id="imp" style="min-height:160px"></textarea><div class="row"><button data-a="import">Import list</button></div></div>';
 }
 function detailView(g){
   if(editing){
@@ -239,6 +240,19 @@ document.addEventListener("click",function(e){
   else if(a==="share"&&g){share(g);}
   else if(a==="copy"&&g){copy(msg(g));}
   else if(a==="tplreset"&&admin){w(function(){return setDoc(R("settings","main"),{next:ST.next,tpl:DEF}).then(function(){toast("Template reset");});});}
+  else if(a==="import"&&admin){
+    var gl=parseList(document.getElementById("imp").value);
+    if(!gl.length){toast("Nothing to import. Check the format.");return;}
+    var add=gl.filter(function(x){return!G[x.code];}),skipped=gl.length-add.length;
+    if(!add.length){toast("Those codes already exist");return;}
+    el.disabled=true;
+    w(function(){
+      var p=Promise.resolve(),mx=0;
+      add.forEach(function(x){mx=Math.max(mx,num(x.code));var names=x.names.map(function(n){return{id:uid(),n:n};});
+        p=p.then(function(){return setDoc(R("groups",x.code),{code:x.code,t:Date.now(),names:names});}).then(function(){return setDoc(R("arrivals",x.code),{in:{}});});});
+      return p.then(function(){return setDoc(R("settings","main"),{next:Math.max(ST.next,mx+1),tpl:ST.tpl});}).then(function(){toast("Imported "+add.length+" groups"+(skipped?", skipped "+skipped+" existing":""));tab="list";render();});
+    }).then(function(){el.disabled=false;});
+  }
   else if(a==="clear"&&admin){
     ask={text:"Are you sure you want to reset the app for a new day? All codes and guests will be deleted and numbering starts again from G-450.",fn:function(){var cs=Object.keys(G);w(function(){var p=Promise.resolve();cs.forEach(function(c){p=p.then(function(){return deleteDoc(R("groups",c));}).then(function(){return deleteDoc(R("arrivals",c));});});return p.then(function(){return setDoc(R("settings","main"),{next:450,tpl:ST.tpl});}).then(function(){open=null;toast("New day ready");render();});});}};render();
   }
