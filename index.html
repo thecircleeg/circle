@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>The Circle – Reservations</title>
+<style>
+:root{--bg:#f6f5f2;--card:#fff;--text:#1a1a1a;--muted:#6b6b6b;--accent:#7c3aed;--accent-text:#fff;--border:#e2e0da;--danger:#c62828;--ok:#2e7d32;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root{--bg:#121212;--card:#1e1e1e;--text:#f2f2f2;--muted:#9a9a9a;--accent:#a78bfa;--accent-text:#121212;--border:#333;--danger:#ef5350;--ok:#66bb6a}}
+*{box-sizing:border-box}
+body{margin:0 auto;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:16px;max-width:560px}
+h1{font-size:20px;margin:0}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px}
+label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+textarea,input{width:100%;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px}
+textarea{min-height:90px;resize:vertical}
+button{font:inherit;border:0;border-radius:10px;padding:10px 14px;background:var(--accent);color:var(--accent-text);font-weight:600}
+button.g{background:transparent;color:var(--text);border:1px solid var(--border);font-weight:500}
+button.d{background:transparent;color:var(--danger);border:1px solid var(--border);font-weight:500}
+.tabs{display:flex;gap:6px;margin-bottom:14px}
+.tabs button{flex:1;background:var(--card);color:var(--muted);border:1px solid var(--border);font-weight:500}
+.tabs button.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent);font-weight:600}
+.row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.sp{flex:1}
+.muted{color:var(--muted);font-size:13px}
+.code{font-weight:700;font-size:18px;color:var(--accent)}
+.g-row{padding:10px 0;border-bottom:1px solid var(--border)}
+.g-row:last-child{border-bottom:0}
+.g-row .t{display:flex;justify-content:space-between;align-items:center}
+.guest{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid var(--border);font-size:17px;color:var(--text);margin:0}
+.guest:last-child{border-bottom:0}
+.guest input{width:26px;height:26px;flex:none;padding:0}
+.guest.in span{color:var(--ok);font-weight:600}
+.big{font-size:28px;font-weight:800;color:var(--accent)}
+.qr{display:block;margin:12px auto;width:200px;height:200px;image-rendering:pixelated;border-radius:8px}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--text);color:var(--bg);padding:10px 16px;border-radius:20px;font-size:14px;display:none;z-index:5}
+#scan{position:fixed;inset:0;background:#000;z-index:9;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:16px}
+#scan video{width:100%;max-width:420px;border-radius:12px}
+#scan p{color:#fff;text-align:center;margin:0}
+</style>
+</head>
+<body>
+<div id="app"><div class="muted" style="padding:20px;text-align:center">Loading…</div></div>
+<div id="toast"></div>
+<div id="scan"><video id="vid" playsinline muted></video><p id="scanmsg"></p><button class="g" style="color:#fff" data-a="stopscan">Close</button></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script type="module">
+import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import{getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut}from"https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import{getFirestore,collection,doc,onSnapshot,setDoc,deleteDoc}from"https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+var firebaseConfig={
+  apiKey:"AIzaSyAzUfZiNO-7aEKimw52aMRkZBXvM1RFL3I",
+  authDomain:"the-circle-c9fce.firebaseapp.com",
+  projectId:"the-circle-c9fce",
+  storageBucket:"the-circle-c9fce.firebasestorage.app",
+  messagingSenderId:"890675266023",
+  appId:"1:890675266023:web:aa05563f464cb2d53b3d42"
+};
+var ADMIN="saiff.tajj@gmail.com";
+var fapp=initializeApp(firebaseConfig),auth=getAuth(fapp),db=getFirestore(fapp);
+function R(p,id){return doc(db,p,id);}
+
+var DEF="✅ Reservation Confirmed\nReservation Code: {code}\nGuests:\n{guests}\n📍 Location: Zap Bar\nhttps://maps.app.goo.gl/NMfkqXoYAPWJCPSm7?g_st=ic\n👩 Ladies are free all night!\n🍸 Mixed groups or ladies groups coming before 2:00 get a free table!\n⏰ Party Time: 11:30 PM – 6:00 AM\n⚠️ Entry Policy: Mixed groups or ladies groups only. All members of the group must be present at the entrance to enter.\n🎟️ Please show your reservation code: {code} at the door.\nHave an amazing night! 🔥";
+var U=null,admin=false,authReady=false,loginErr="",lastEm="",G={},A={},ST={next:450,tpl:DEF},ready=false,subs=[];
+var tab="add",open=null,editing=false,q="",pending=false,chain=Promise.resolve(),ask=null;
+var app=document.getElementById("app");
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
+function uid(){return Math.random().toString(36).slice(2,8);}
+function parse(t){return t.split(/[,\n،]+/).map(function(s){return cap(s.trim());}).filter(Boolean);}
+function num(c){return parseInt(c.slice(2),10)||0;}
+function all(){return Object.keys(G).map(function(c){return G[c];}).sort(function(a,b){return num(a.code)-num(b.code);});}
+function isIn(g,x){var a=A[g.code];return!!(a&&a.in&&a.in[x.id]);}
+function arrived(g){return g.names.filter(function(x){return isIn(g,x);}).length;}
+function msg(g){return ST.tpl.replace(/\{code\}/g,g.code).replace("{guests}",g.names.map(function(x){return"• "+x.n;}).join("\n"));}
+function toast(t){var e=document.getElementById("toast");e.textContent=t;e.style.display="block";clearTimeout(toast.h);toast.h=setTimeout(function(){e.style.display="none";},2500);}
+function w(fn){chain=chain.then(fn).catch(function(e){toast("Couldn’t save: "+((e&&e.code)||"error"));});return chain;}
+function qrCanvas(text,size){
+  var qr=qrcode(0,"M");qr.addData(text);qr.make();
+  var n=qr.getModuleCount(),cell=Math.max(1,Math.floor(size/(n+8))),s=cell*(n+8);
+  var c=document.createElement("canvas");c.width=c.height=s;var x=c.getContext("2d");
+  x.fillStyle="#fff";x.fillRect(0,0,s,s);x.fillStyle="#000";
+  for(var r=0;r<n;r++)for(var k=0;k<n;k++)if(qr.isDark(r,k))x.fillRect((k+4)*cell,(r+4)*cell,cell,cell);
+  return c;
+}
+function qrUrl(code){try{return qrCanvas(code,600).toDataURL("image/png");}catch(e){return"";}}
+function copy(t){
+  try{if(navigator.clipboard){navigator.clipboard.writeText(t).then(function(){toast("Copied");},function(){fb(t);});return;}}catch(e){}
+  fb(t);
+}
+function fb(t){var a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();try{document.execCommand("copy");toast("Copied");}catch(e){toast("Copy failed");}a.remove();}
+function share(g){
+  var text=msg(g);
+  try{qrCanvas(g.code,600).toBlob(function(b){
+    var f=new File([b],g.code+".png",{type:"image/png"});
+    if(navigator.canShare&&navigator.canShare({files:[f]})){navigator.share({files:[f],text:text}).catch(function(e){if(!e||e.name!=="AbortError")copy(text);});}
+    else{copy(text);toast("Message copied. Long-press the QR to save it.");}
+  },"image/png");}catch(e){copy(text);}
+}
+
+function loginView(){
+  return'<h1>The Circle · Reservations</h1><div class="card" style="margin-top:14px"><label>Email</label><input id="em" type="email" autocomplete="username" autocapitalize="none" value="'+esc(lastEm)+'"><label style="margin-top:12px">Password</label><input id="pw" type="password" autocomplete="current-password"><div class="row"><button class="sp" data-a="login">Sign in</button></div><div style="margin-top:10px;color:var(--danger);font-size:14px">'+esc(loginErr)+'</div></div>';
+}
+function addView(){
+  return'<div class="card"><label>Guest names (comma or new line)</label><textarea id="names" placeholder="Enter names..."></textarea>'+
+  '<div class="row"><div class="muted sp">Next code: <b style="color:var(--accent)">G-'+ST.next+'</b></div><button data-a="add">Add group</button></div></div>';
+}
+function listView(){
+  var ql=q.toLowerCase(),gs=all().reverse().filter(function(g){return!ql||g.code.toLowerCase().indexOf(ql)>-1||g.names.some(function(x){return x.n.toLowerCase().indexOf(ql)>-1;});});
+  var total=0,inn=0;all().forEach(function(g){total+=g.names.length;inn+=arrived(g);});
+  return'<div class="card"><div class="row" style="margin-top:0"><input id="q" class="sp" placeholder="Search code or name" value="'+esc(q)+'"><button class="g" data-a="scan">Scan QR</button></div>'+(admin?'<div class="row"><button class="g sp" data-a="copylist">Copy master list</button></div>':'')+
+  '<div class="muted" style="margin:10px 0 4px">'+gs.length+' groups · '+inn+'/'+total+' guests arrived</div>'+
+  (gs.length?gs.map(function(g){return'<div class="g-row" data-a="open" data-c="'+g.code+'"><div class="t"><span class="code">'+g.code+'</span><span class="muted">'+arrived(g)+'/'+g.names.length+' arrived</span></div><div>'+g.names.map(function(x){return esc(x.n);}).join(", ")+'</div></div>';}).join(""):'<div class="muted" style="text-align:center;padding:14px">No groups</div>')+'</div>';
+}
+function setView(){
+  return'<div class="card"><label>Next group number</label><input id="nx" type="number" inputmode="numeric" value="'+ST.next+'">'+
+  '<label style="margin-top:12px">Message template ({code} and {guests} get filled in)</label><textarea id="tpl" style="min-height:170px">'+esc(ST.tpl)+'</textarea>'+
+  '<div class="row"><button class="g" data-a="tplreset">Reset template</button><span class="sp"></span><button class="d" data-a="clear">Start new day</button></div></div>';
+}
+function detailView(g){
+  if(editing){
+    return'<div class="card"><div class="row" style="margin-top:0"><button class="g" data-a="back">← Back</button></div><div class="big" style="margin:10px 0">'+g.code+'</div><label>Guest names (one per line)</label><textarea id="en" style="min-height:140px">'+esc(g.names.map(function(x){return x.n;}).join("\n"))+'</textarea><div class="row"><button data-a="saveedit">Save</button><button class="g" data-a="canceledit">Cancel</button></div></div>';
+  }
+  return'<div class="card"><div class="row" style="margin-top:0"><button class="g" data-a="back">← Back</button><span class="sp"></span>'+(admin?'<button class="g" data-a="edit">Edit</button><button class="d" data-a="del">Delete</button>':'')+'</div>'+
+  '<div class="big" style="margin-top:10px">'+g.code+'</div><div class="muted">'+arrived(g)+'/'+g.names.length+' arrived</div></div>'+
+  '<div class="card">'+g.names.map(function(x){var on=isIn(g,x);return'<label class="guest'+(on?" in":"")+'"><input type="checkbox" data-a="tick" data-id="'+x.id+'"'+(on?" checked":"")+'><span>'+esc(x.n)+'</span></label>';}).join("")+
+  '<div class="row"><button data-a="allin">Mark all arrived</button></div></div>'+
+  (admin?'<div class="card"><img class="qr" alt="QR '+g.code+'" src="'+qrUrl(g.code)+'"><div class="muted" style="text-align:center">Long-press the QR to save it</div><div class="row"><button class="sp" data-a="share">Share message + QR</button><button class="g" data-a="copy">Copy message</button></div></div>':'');
+}
+function render(){
+  pending=false;
+  if(!authReady){return;}
+  if(!U){app.innerHTML=loginView();var pw=document.getElementById("pw");if(pw)pw.onkeydown=function(e){if(e.key==="Enter")doLogin();};return;}
+  if(!ready){app.innerHTML='<div class="muted" style="padding:20px;text-align:center">Loading…</div>';return;}
+  var g=open&&G[open];if(open&&!g){open=null;editing=false;}
+  var h='<div class="row" style="margin:0 0 12px"><h1 class="sp">The Circle · Reservations</h1><button class="g" data-a="logout" style="padding:6px 10px;font-size:13px">Sign out</button></div>';
+  if(admin&&!g){h+='<div class="tabs">'+[["add","Add"],["list","Master list"],["set","Settings"]].map(function(t){return'<button data-a="tab" data-t="'+t[0]+'" class="'+(tab===t[0]?"on":"")+'">'+t[1]+'</button>';}).join("")+'</div>';}
+  if(g)h+=detailView(g);else if(!admin||tab==="list")h+=listView();else if(tab==="add")h+=addView();else h+=setView();
+  if(ask)h='<div class="card" style="border-color:var(--danger)"><div>'+esc(ask.text)+'</div><div class="row"><button class="d" data-a="yes">Yes, continue</button><button class="g" data-a="no">Cancel</button></div></div>'+h;
+  app.innerHTML=h;if(ask)window.scrollTo(0,0);
+  var qi=document.getElementById("q");
+  if(qi)qi.oninput=function(){q=qi.value;var p=qi.selectionStart;render();var n=document.getElementById("q");n.focus();n.setSelectionRange(p,p);};
+  var nx=document.getElementById("nx");
+  if(nx)nx.onchange=function(){var v=parseInt(nx.value,10);if(!isNaN(v)&&v>=0)w(function(){return setDoc(R("settings","main"),{next:v,tpl:ST.tpl});});};
+  var tp=document.getElementById("tpl");
+  if(tp)tp.onchange=function(){var t=tp.value||DEF;w(function(){return setDoc(R("settings","main"),{next:ST.next,tpl:t}).then(function(){toast("Template saved");});});};
+}
+function refresh(){
+  var a=document.activeElement;
+  if(a&&(a.tagName==="TEXTAREA"||(a.tagName==="INPUT"&&a.type!=="checkbox"))){pending=true;return;}
+  render();
+}
+document.addEventListener("focusout",function(){setTimeout(function(){var a=document.activeElement;if(pending&&!(a&&(a.tagName==="TEXTAREA"||a.tagName==="INPUT")))render();},500);});
+
+function start(){
+  var got={g:false,a:false,s:false};
+  function done(k){got[k]=true;if(got.g&&got.a&&got.s)ready=true;if(ready)refresh();}
+  function er(e){toast("Sync problem: "+((e&&e.code)||"error"));}
+  subs=[
+    onSnapshot(collection(db,"groups"),function(s){G={};s.forEach(function(d){G[d.id]=d.data();});done("g");},er),
+    onSnapshot(collection(db,"arrivals"),function(s){A={};s.forEach(function(d){A[d.id]=d.data();});done("a");},er),
+    onSnapshot(R("settings","main"),function(s){if(s.exists()){var d=s.data();ST={next:d.next||450,tpl:d.tpl||DEF};}done("s");},er)
+  ];
+}
+function stop(){subs.forEach(function(f){f();});subs=[];G={};A={};ready=false;}
+onAuthStateChanged(auth,function(u){
+  stop();U=u;admin=!!u&&(u.email||"").toLowerCase()===ADMIN;
+  tab=admin?"add":"list";open=null;editing=false;ask=null;authReady=true;
+  if(u)start();render();
+});
+function doLogin(){
+  var em=document.getElementById("em").value.trim().toLowerCase(),pw=document.getElementById("pw").value;
+  lastEm=em;if(!em||!pw){loginErr="Enter your email and password.";render();return;}
+  loginErr="";
+  signInWithEmailAndPassword(auth,em,pw).catch(function(e){
+    var c=(e&&e.code)||"";
+    loginErr=c==="auth/invalid-credential"||c==="auth/wrong-password"||c==="auth/user-not-found"?"Wrong email or password.":c==="auth/network-request-failed"?"No connection. Check your internet.":c==="auth/unauthorized-domain"?"This website isn’t authorized yet in Firebase (Authentication > Settings > Authorized domains).":"Couldn’t sign in ("+c+").";
+    render();
+  });
+}
+
+var stream=null,timer=null;
+function stopscan(){clearInterval(timer);if(stream){stream.getTracks().forEach(function(t){t.stop();});stream=null;}document.getElementById("scan").style.display="none";}
+function scan(){
+  var box=document.getElementById("scan"),m=document.getElementById("scanmsg"),v=document.getElementById("vid");
+  box.style.display="flex";m.textContent="Point at a group’s QR code";
+  if(!("BarcodeDetector" in window)||!navigator.mediaDevices){m.textContent="QR scanning isn’t supported in this browser. Use the search box and type the code.";return;}
+  var det=new BarcodeDetector({formats:["qr_code"]});
+  navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}}).then(function(s){
+    stream=s;v.srcObject=s;v.play();
+    timer=setInterval(function(){det.detect(v).then(function(r){
+      if(!r.length)return;var mt=String(r[0].rawValue).match(/G-\d+/i);if(!mt)return;
+      var c=mt[0].toUpperCase();
+      if(G[c]){stopscan();open=c;editing=false;render();}else{m.textContent=c+" not found";}
+    }).catch(function(){});},400);
+  }).catch(function(){m.textContent="Camera is blocked. Use the search box and type the code.";});
+}
+function tick(code,id,val){var o={};o[id]=val;return w(function(){return setDoc(R("arrivals",code),{in:o},{merge:true});});}
+document.addEventListener("click",function(e){
+  var el=e.target.closest("[data-a]");if(!el)return;
+  var a=el.getAttribute("data-a"),g=open&&G[open];
+  if(a==="tick")return;
+  if(a==="yes"){var f=ask&&ask.fn;ask=null;if(f)f();render();return;}
+  if(a==="no"){ask=null;render();return;}
+  if(a==="login"){doLogin();}
+  else if(a==="logout"){signOut(auth);}
+  else if(a==="tab"){tab=el.getAttribute("data-t");render();}
+  else if(a==="add"&&admin){
+    var ns=parse(document.getElementById("names").value);
+    if(!ns.length){toast("Enter at least one name");return;}
+    var n=ST.next,code="G-"+n;
+    if(G[code]){toast(code+" already exists. Change the next number in Settings.");return;}
+    el.disabled=true;
+    w(function(){
+      var names=ns.map(function(x){return{id:uid(),n:x};});
+      return setDoc(R("groups",code),{code:code,t:Date.now(),names:names})
+        .then(function(){return setDoc(R("arrivals",code),{in:{}});})
+        .then(function(){return setDoc(R("settings","main"),{next:n+1,tpl:ST.tpl});})
+        .then(function(){open=code;editing=false;toast(code+" saved");render();});
+    }).then(function(){el.disabled=false;});
+  }
+  else if(a==="open"){open=el.getAttribute("data-c");editing=false;render();}
+  else if(a==="back"){open=null;editing=false;render();}
+  else if(a==="copylist"){copy(all().map(function(g){return g.code+" :\n"+g.names.map(function(x){return x.n;}).join("\n");}).join("\n\n"));}
+  else if(a==="scan"){scan();}
+  else if(a==="stopscan"){stopscan();}
+  else if(a==="edit"){editing=true;render();}
+  else if(a==="canceledit"){editing=false;render();}
+  else if(a==="saveedit"&&g&&admin){
+    var ns2=parse(document.getElementById("en").value);
+    if(!ns2.length){toast("Keep at least one name");return;}
+    var names2=ns2.map(function(x){var o=g.names.filter(function(y){return y.n.toLowerCase()===x.toLowerCase();})[0];return{id:o?o.id:uid(),n:x};});
+    w(function(){return setDoc(R("groups",g.code),{code:g.code,t:g.t,names:names2}).then(function(){editing=false;render();});});
+  }
+  else if(a==="del"&&g&&admin){var c=g.code;ask={text:"Delete "+c+"?",fn:function(){w(function(){return deleteDoc(R("groups",c)).then(function(){return deleteDoc(R("arrivals",c));}).then(function(){open=null;render();});});}};render();}
+  else if(a==="allin"&&g){var o={};g.names.forEach(function(x){o[x.id]=true;});w(function(){return setDoc(R("arrivals",g.code),{in:o},{merge:true});});}
+  else if(a==="share"&&g){share(g);}
+  else if(a==="copy"&&g){copy(msg(g));}
+  else if(a==="tplreset"&&admin){w(function(){return setDoc(R("settings","main"),{next:ST.next,tpl:DEF}).then(function(){toast("Template reset");});});}
+  else if(a==="clear"&&admin){
+    ask={text:"Are you sure you want to reset the app for a new day? All codes and guests will be deleted and numbering starts again from G-450.",fn:function(){var cs=Object.keys(G);w(function(){var p=Promise.resolve();cs.forEach(function(c){p=p.then(function(){return deleteDoc(R("groups",c));}).then(function(){return deleteDoc(R("arrivals",c));});});return p.then(function(){return setDoc(R("settings","main"),{next:450,tpl:ST.tpl});}).then(function(){open=null;toast("New day ready");render();});});}};render();
+  }
+});
+document.addEventListener("change",function(e){
+  var el=e.target;if(el.getAttribute&&el.getAttribute("data-a")==="tick"){var g=open&&G[open];if(g)tick(g.code,el.getAttribute("data-id"),el.checked);}
+});
+</script>
+</body>
+</html>
