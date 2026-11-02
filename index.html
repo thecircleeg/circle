@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>The Circle – Reservations</title>
+<style>
+:root{--bg:#f6f5f2;--card:#fff;--text:#1a1a1a;--muted:#6b6b6b;--accent:#7c3aed;--accent-text:#fff;--border:#e2e0da;--danger:#c62828;--ok:#2e7d32;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root{--bg:#121212;--card:#1e1e1e;--text:#f2f2f2;--muted:#9a9a9a;--accent:#a78bfa;--accent-text:#121212;--border:#333;--danger:#ef5350;--ok:#66bb6a}}
+*{box-sizing:border-box}
+body{margin:0 auto;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:16px;max-width:560px}
+h1{font-size:20px;margin:0}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px}
+label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+textarea,input{width:100%;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px}
+textarea{min-height:90px;resize:vertical}
+button{font:inherit;border:0;border-radius:10px;padding:10px 14px;background:var(--accent);color:var(--accent-text);font-weight:600}
+button.g{background:transparent;color:var(--text);border:1px solid var(--border);font-weight:500}
+button.d{background:transparent;color:var(--danger);border:1px solid var(--border);font-weight:500}
+.tabs{display:flex;gap:6px;margin-bottom:14px}
+.tabs button{flex:1;background:var(--card);color:var(--muted);border:1px solid var(--border);font-weight:500}
+.tabs button.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent);font-weight:600}
+.row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.sp{flex:1}
+.muted{color:var(--muted);font-size:13px}
+.code{font-weight:700;font-size:18px;color:var(--accent)}
+.g-row{padding:10px 0;border-bottom:1px solid var(--border)}
+.g-row:last-child{border-bottom:0}
+.g-row .t{display:flex;justify-content:space-between;align-items:center}
+.guest{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid var(--border);font-size:17px;color:var(--text);margin:0}
+.guest:last-child{border-bottom:0}
+.guest input{width:26px;height:26px;flex:none;padding:0}
+.guest.in span{color:var(--ok);font-weight:600}
+.big{font-size:28px;font-weight:800;color:var(--accent)}
+.qr{display:block;margin:12px auto;width:200px;height:200px;image-rendering:pixelated;border-radius:8px}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--text);color:var(--bg);padding:10px 16px;border-radius:20px;font-size:14px;display:none;z-index:5}
+#scan{position:fixed;inset:0;background:#000;z-index:9;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:16px}
+#scan video{width:100%;max-width:420px;border-radius:12px}
+#scan p{color:#fff;text-align:center;margin:0}
+.tabs button{padding:10px 4px;font-size:13px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.chip{background:var(--bg);color:var(--text);border:1px solid var(--border);font-weight:600}
+.chip.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+#mod{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:8;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--card);width:100%;max-width:560px;max-height:88vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+.map{overflow:auto;border:1px solid var(--border);border-radius:12px;background:#fff;max-height:72vh}
+.map svg{display:block}
+.tb{cursor:pointer}
+</style>
+</head>
+<body>
+<div id="app"><div class="muted" style="padding:20px;text-align:center">Loading…</div></div>
+<div id="toast"></div>
+<div id="scan"><video id="vid" playsinline muted></video><p id="scanmsg"></p><button class="g" style="color:#fff" data-a="stopscan">Close</button></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script type="module">
+import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import{getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut}from"https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import{getFirestore,collection,doc,onSnapshot,setDoc,deleteDoc,arrayUnion}from"https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+var firebaseConfig={
+  apiKey:"AIzaSyAzUfZiNO-7aEKimw52aMRkZBXvM1RFL3I",
+  authDomain:"the-circle-c9fce.firebaseapp.com",
+  projectId:"the-circle-c9fce",
+  storageBucket:"the-circle-c9fce.firebasestorage.app",
+  messagingSenderId:"890675266023",
+  appId:"1:890675266023:web:aa05563f464cb2d53b3d42"
+};
+var ADMIN="saiff.tajj@gmail.com";
+var fapp=initializeApp(firebaseConfig),auth=getAuth(fapp),db=getFirestore(fapp);
+function R(p,id){return doc(db,p,id);}
+
+var DEF="✅ Reservation Confirmed\nReservation Code: {code}\nGuests:\n{guests}\n📍 Location: Zap Bar\nhttps://maps.app.goo.gl/NMfkqXoYAPWJCPSm7?g_st=ic\n👩 Ladies are free all night!\n🍸 Mixed groups or ladies groups coming before 2:00 get a free table!\n⏰ Party Time: 11:30 PM – 6:00 AM\n⚠️ Entry Policy: Mixed groups or ladies groups only. All members of the group must be present at the entrance to enter.\n🎟️ Please show your reservation code: {code} at the door.\nHave an amazing night! 🔥";
+var U=null,admin=false,authReady=false,loginErr="",lastEm="",G={},A={},ST={next:450,tpl:DEF},ready=false,subs=[];
+var sales=false,T={},X=[],tsub=null,selT=null,draft=null,zoom=1100,P={},psub=null,openP=null;
+var tab="add",open=null,editing=false,q="",pending=false,chain=Promise.resolve(),ask=null;
+var app=document.getElementById("app");
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
+function uid(){return Math.random().toString(36).slice(2,8);}
+function anorm(w){return w.replace(/[\u064B-\u065F\u0670\u0640]/g,"").replace(/[أإآ]/g,"ا").replace(/ى/g,"ي").replace(/ة/g,"ه").replace(/ؤ/g,"و").replace(/ئ/g,"ي");}
+var AR={};("محمد=Mohamed|احمد=Ahmed|علي=Ali|سيف=Saif|خالد=Khalid|عفاف=Afaf|ادريس=Idris|حنين=Haneen|حبيبة=Habiba|ابراهيم=Ibrahim|محمود=Mahmoud|لين=Leen|مريم=Mariam|دعاء=Doaa|اسراء=Israa|بكري=Bakri|صلاح=Salah|مصطفى=Mostafa|امجد=Amjad|عائشة=Aisha|ياسمين=Yasmin|يسرى=Yusra|نورة=Noura|هنا=Hana|هدى=Huda|هيا=Haya|عمر=Omar|عمرو=Amr|يوسف=Youssef|كريم=Karim|طارق=Tarek|حسن=Hassan|حسين=Hussein|فاطمة=Fatma|سارة=Sara|نور=Nour|منى=Mona|سلمى=Salma|ندى=Nada|رنا=Rana|ريم=Reem|ليلى=Layla|اية=Aya|اسماء=Asmaa|ايمان=Iman|امل=Amal|هبة=Heba|رحمة=Rahma|زينب=Zeinab|خديجة=Khadija|عبدالله=Abdullah|عبدالرحمن=Abdelrahman|عبد=Abdel|الله=Allah|ماجد=Majed|ماهر=Maher|سامي=Sami|سامر=Samer|رامي=Rami|زياد=Ziad|ياسر=Yasser|عادل=Adel|عماد=Emad|هشام=Hisham|وليد=Walid|وائل=Wael|بدر=Badr|فهد=Fahad|سعد=Saad|سعيد=Saeed|سلطان=Sultan|نادر=Nader|نادية=Nadia|لينا=Lina|دينا=Dina|شهد=Shahd|جنى=Jana|غادة=Ghada|ملك=Malak|روان=Rawan|رهف=Rahaf|بسمة=Basma|اسلام=Islam|عثمان=Osman|عمار=Ammar|انس=Anas|ايهاب=Ehab|نفيسة=Nafisa|اسامة=Osama|منال=Manal|هالة=Hala|ريما=Rima|اسماعيل=Ismail|ابو=Abo|يحيى=Yahya|عبيدة=Obeida|جاد=Gad|معاوية=Moawia|نازك=Nazik|وجدان=Wegdan|مرام=Maram|اصالة=Asala|ريان=Rayan|رزان=Razan|سندس=Sondos|عبير=Abeer|هدير=Hadeer|ضحى=Doha|ليان=Liyan|تسنيم=Tasneem|جميلة=Gamila|عزة=Azza|رنيم=Raneem|المتلثم=El-Malatham").split("|").forEach(function(p){var k=p.split("=");AR[anorm(k[0])]=k[1];});
+var LM={"ا":"a","ب":"b","ت":"t","ث":"th","ج":"j","ح":"h","خ":"kh","د":"d","ذ":"dh","ر":"r","ز":"z","س":"s","ش":"sh","ص":"s","ض":"d","ط":"t","ظ":"z","ع":"a","غ":"gh","ف":"f","ق":"q","ك":"k","ل":"l","م":"m","ن":"n","ه":"h","و":"w","ي":"y","ء":"a","گ":"g","پ":"p","چ":"ch","ڤ":"v"};
+function latWord(w){
+  var k=anorm(w);if(AR[k])return AR[k];
+  var out="",prev=false,i,ch,L,vow;
+  for(i=0;i<k.length;i++){ch=k.charAt(i);L=LM[ch];
+    if(L===undefined){out+=ch;prev=false;continue;}
+    vow=(ch==="ا"||ch==="و"||ch==="ي");
+    if(vow&&prev){out+=ch==="ا"?"a":ch==="و"?"o":"i";prev=false;}
+    else{if(!vow&&prev)out+="a";out+=L;prev=!(ch==="ا"||ch==="ع"||ch==="ء");}
+  }
+  return cap(out);
+}
+function latin(s){
+  if(!/[\u0600-\u06FF]/.test(s))return cap(s);
+  return s.split(/\s+/).map(function(w){return/[\u0600-\u06FF]/.test(w)?latWord(w):cap(w);}).join(" ");
+}
+function parse(t){return t.split(/[,\n،]+/).map(function(s){return latin(s.trim());}).filter(Boolean);}
+function num(c){return parseInt(c.slice(2),10)||0;}
+function parseList(t){var out=[],cur=null;t.split(/\r?\n/).forEach(function(l){l=l.replace(/[{}]/g,"").trim();if(!l)return;var m=l.match(/^G-?\s*(\d+)\s*:?$/i);if(m){cur={code:"G-"+m[1],names:[]};out.push(cur);}else if(cur){cur.names.push(latin(l));}});return out.filter(function(g){return g.names.length;});}
+function all(){return Object.keys(G).map(function(c){return G[c];}).sort(function(a,b){return num(a.code)-num(b.code);});}
+function isIn(g,x){var a=A[g.code];return!!(a&&a.in&&a.in[x.id]);}
+function arrived(g){return g.names.filter(function(x){return isIn(g,x);}).length;}
+function msg(g){return ST.tpl.replace(/\{code\}/g,g.code).replace("{guests}",g.names.map(function(x){return"• "+x.n;}).join("\n"));}
+function toast(t){var e=document.getElementById("toast");e.textContent=t;e.style.display="block";clearTimeout(toast.h);toast.h=setTimeout(function(){e.style.display="none";},2500);}
+function w(fn){chain=chain.then(fn).catch(function(e){toast(e&&e.code==="permission-denied"?"Permission denied. Check you are on the Sales team and the Firebase rules are updated.":"Couldn’t save: "+((e&&e.code)||"error"));});return chain;}
+function qrCanvas(text,size){
+  var qr=qrcode(0,"M");qr.addData(text);qr.make();
+  var n=qr.getModuleCount(),cell=Math.max(1,Math.floor(size/(n+8))),s=cell*(n+8);
+  var c=document.createElement("canvas");c.width=c.height=s;var x=c.getContext("2d");
+  x.fillStyle="#fff";x.fillRect(0,0,s,s);x.fillStyle="#000";
+  for(var r=0;r<n;r++)for(var k=0;k<n;k++)if(qr.isDark(r,k))x.fillRect((k+4)*cell,(r+4)*cell,cell,cell);
+  return c;
+}
+function qrUrl(code){try{return qrCanvas(code,600).toDataURL("image/png");}catch(e){return"";}}
+function copy(t){
+  try{if(navigator.clipboard){navigator.clipboard.writeText(t).then(function(){toast("Copied");},function(){fb(t);});return;}}catch(e){}
+  fb(t);
+}
+function fb(t){var a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();try{document.execCommand("copy");toast("Copied");}catch(e){toast("Copy failed");}a.remove();}
+function share(g){
+  var text=msg(g);
+  try{qrCanvas(g.code,600).toBlob(function(b){
+    var f=new File([b],g.code+".png",{type:"image/png"});
+    if(navigator.canShare&&navigator.canShare({files:[f]})){navigator.share({files:[f],text:text}).catch(function(e){if(!e||e.name!=="AbortError")copy(text);});}
+    else{copy(text);toast("Message copied. Long-press the QR to save it.");}
+  },"image/png");}catch(e){copy(text);}
+}
+
+var TBL=[];
+(function(){
+  var n=0;
+  function add(type,label,x,y){TBL.push({id:"t"+(++n),type:type,label:label,x:x,y:y});}
+  [[136,92],[419,92],[419,282],[417,838]].forEach(function(p,i){add("r","VIP HIGH "+(i+1),p[0],p[1]);});
+  [[137,282],[139,456],[417,458]].forEach(function(p,i){add("r","VIP DANCER "+(i+1),p[0],p[1]);});
+  add("h","HIGH TABLE",687,91);
+  [[686,485],[686,834]].forEach(function(p,i){add("l","Lounge "+(i+1),p[0],p[1]);});
+  [[1064,76],[943,225],[1073,223],[1414,213],[1593,402],[1115,838]].forEach(function(p,i){add("b","Round "+(i+1),p[0],p[1]);});
+  add("h","HIGH TABLE FOR 8",1412,76);
+  [["Table 1",1115,482],["Table 2",1115,660],["Table 3",1415,482],["Table 4",1416,660],["Table 6",1592,73],["Table 7",1590,211]].forEach(function(p){add("r",p[0],p[1],p[2]);});
+})();
+function salesOf(d){return Array.isArray(d.sales)?d.sales:((d.price||0)>0?[{price:d.price,cust:d.cust||"",by:d.by||"",t:d.t||0}]:[]);}
+function sumSales(a){return a.reduce(function(n,x){return n+(x.price||0);},0);}
+function le(n){return Number(n||0).toLocaleString()+" LE";}
+function hm(t){return t?new Date(t).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"";}
+function seat(p){return'<rect x="'+(p[0]-15)+'" y="'+(p[1]-13)+'" width="30" height="26" rx="8" fill="#1b3a6b"/>';}
+function tSvgOne(t){
+  var d=T[t.id]||{},name=d.name||t.label,sl=salesOf(d),price=sumSales(sl),booked=sl.length>0,x=t.x,y=t.y,body,sp,txt;
+  var ring=booked?' stroke="#ff9800" stroke-width="6"':'';
+  if(t.type==="r"){body='<ellipse cx="'+x+'" cy="'+y+'" rx="42" ry="40" fill="#f3e3cc"'+(booked?ring:' stroke="#d8c3a5" stroke-width="1.5"')+'/>';sp=[[x,y-54],[x,y+54],[x-52,y],[x+52,y]];txt="#111";}
+  else if(t.type==="b"){body='<ellipse cx="'+x+'" cy="'+y+'" rx="54" ry="40" fill="#0b57c4"'+ring+'/>';sp=[[x,y-52],[x,y+52],[x-66,y],[x+66,y]];txt="#fff";}
+  else{var bw=t.type==="l"?106:100,bh=t.type==="l"?62:76;
+    body='<rect x="'+(x-bw/2)+'" y="'+(y-bh/2)+'" width="'+bw+'" height="'+bh+'" rx="10" fill="'+(t.type==="l"?"#0f7a4a":"#1b3a6b")+'"'+ring+'/>';
+    sp=[[x-20,y-bh/2-14],[x+20,y-bh/2-14],[x-20,y+bh/2+14],[x+20,y+bh/2+14],[x-bw/2-16,y],[x+bw/2+16,y]];txt="#fff";}
+  var words=name.split(" "),lines=[name];
+  if(name.length>8&&words.length>1)lines=[words.slice(0,-1).join(" "),words[words.length-1]];
+  var longest=Math.max.apply(null,lines.map(function(l){return l.length;})),fs=longest>12?11:longest>9?13:longest>7?15:17;
+  var n=lines.length+(booked?1:0),lh=fs+4,s="";
+  lines.forEach(function(l,i){s+='<text x="'+x+'" y="'+(y+(i-(n-1)/2)*lh+fs*0.35)+'" text-anchor="middle" font-size="'+fs+'" font-weight="700" fill="'+txt+'">'+esc(l)+'</text>';});
+  if(booked)s+='<text x="'+x+'" y="'+(y+(lines.length-(n-1)/2)*lh+fs*0.35)+'" text-anchor="middle" font-size="'+fs+'" font-weight="800" fill="'+(txt==="#fff"?"#ffd54f":"#b45309")+'">'+(sl.length>1?price+" ×"+sl.length:price)+'</text>';
+  return'<g class="tb" data-a="table" data-id="'+t.id+'">'+sp.map(seat).join("")+body+s+'</g>';
+}
+function tSvg(){
+  var h='<rect x="1170" y="27" width="128" height="94" rx="8" fill="#e6e6e6" stroke="#bbb"/><text x="1234" y="79" text-anchor="middle" font-size="17" font-weight="700" fill="#222">Stage</text>'+
+  '<rect x="1170" y="238" width="128" height="94" rx="8" fill="#e6e6e6" stroke="#bbb"/><text x="1234" y="290" text-anchor="middle" font-size="15" font-weight="700" fill="#222">DANCE FLOOR</text>';
+  TBL.forEach(function(t){h+=tSvgOne(t);});
+  return'<svg viewBox="0 0 1688 930" width="'+zoom+'" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif">'+h+'</svg>';
+}
+function tablesView(){
+  var tb=0,ns=0,sum=0;TBL.forEach(function(t){var a=salesOf(T[t.id]||{});if(a.length){tb++;ns+=a.length;sum+=sumSales(a);}});
+  return'<div class="card"><div class="row" style="margin-top:0"><div class="sp"><span class="big">'+tb+'</span> <span class="muted">of '+TBL.length+' tables sold · '+ns+' sales</span></div><button class="g" data-a="zout">−</button><button class="g" data-a="zin">+</button></div>'+(admin?'<div style="margin-top:8px"><span class="muted">Total money</span> <span class="big" style="font-size:22px">'+le(sum)+'</span></div>':'')+'<div class="muted" style="margin-top:6px">Tap a table to sell it. Scroll the map to move around.</div></div><div class="map">'+tSvg()+'</div>';
+}
+function modalView(){
+  var t=TBL.filter(function(x){return x.id===selT;})[0];if(!t||!draft)return"";
+  var d=T[t.id]||{},sl=salesOf(d),name=d.name||t.label,P0=[800,1000,1500,2000,2500];
+  var head='<div class="row" style="margin-top:0"><div class="big sp" style="font-size:22px">'+esc(name)+'</div><button class="g" data-a="mclose">Close</button></div>';
+  if(draft.confirm){
+    return'<div id="mod"><div class="sheet">'+head+'<div style="margin:18px 0;font-size:18px;line-height:1.5">You are selling <b>'+esc(name)+'</b> for <b>'+le(draft.price)+'</b>'+(draft.cust?' to <b>'+esc(draft.cust)+'</b>':'')+'.<br>Confirm?</div><div class="row"><button class="sp" data-a="mconfirm">Yes, confirm sale</button><button class="g" data-a="mback">Back</button></div></div></div>';
+  }
+  var hist=sl.length?'<div style="margin-top:12px"><label>Sales so far · total '+le(sumSales(sl))+'</label>'+sl.map(function(x,i){return'<div class="g-row"><div class="t"><span><b>'+le(x.price)+'</b>'+(x.cust?" · "+esc(x.cust):"")+' <span class="muted">'+hm(x.t)+'</span></span>'+(admin?'<button class="d" style="padding:4px 8px;font-size:12px" data-a="sdel" data-i="'+i+'">Remove</button>':'')+'</div></div>';}).join("")+'</div>':'';
+  var chips=P0.map(function(p){return'<button class="chip'+(draft.price===p?" on":"")+'" data-a="chip" data-p="'+p+'">'+p+'</button>';}).join("");
+  return'<div id="mod"><div class="sheet">'+head+
+  (admin?'<label style="margin-top:12px">Table name</label><div class="row" style="margin-top:0"><input id="m-name" class="sp" value="'+esc(draft.name)+'"><button class="g" data-a="mname">Save name</button></div>':'')+hist+
+  '<label style="margin-top:14px">'+(sl.length?"New sale · price (LE)":"Price (LE)")+'</label><div class="chips">'+chips+'</div><input id="m-price" type="number" inputmode="numeric" placeholder="Other price" value="'+(draft.price&&P0.indexOf(draft.price)<0?draft.price:"")+'">'+
+  '<label style="margin-top:12px">Sold to (optional)</label><input id="m-cust" value="'+esc(draft.cust)+'">'+
+  '<div class="row"><button class="sp" data-a="msell">Sell table</button></div></div></div>';
+}
+function syncTables(){
+  var want=admin||sales;
+  if(want&&!tsub){tsub=onSnapshot(collection(db,"tables"),function(s){T={};s.forEach(function(d){T[d.id]=d.data();});refresh();},function(e){toast("Tables: "+((e&&e.code)||"error"));});}
+  else if(!want&&tsub){tsub();tsub=null;T={};}
+  if(admin&&!psub){psub=onSnapshot(collection(db,"parties"),function(s){P={};s.forEach(function(d){P[d.id]=d.data();});refresh();},function(e){toast("Parties: "+((e&&e.code)||"error"));});}
+  else if(!admin&&psub){psub();psub=null;P={};}
+}
+function partiesView(){
+  var ids=Object.keys(P).sort(function(a,b){return(P[b].t||0)-(P[a].t||0);});
+  return'<div class="card"><div class="muted">Every time you tap Start new day, that party is saved here. Each row shows guests booked – guests who came.</div></div>'+
+  (ids.length?'<div class="card">'+ids.map(function(id){var p=P[id],t=p.tot||{};return'<div class="g-row" data-a="party" data-id="'+id+'"><div class="t"><span class="code" style="color:var(--text)">'+esc(p.name||"Party")+'</span><span class="big" style="font-size:20px">'+(t.guests||0)+' – '+(t.came||0)+'</span></div><div class="muted">'+esc(p.date||"")+' · '+(t.res||0)+' reservations · '+(t.tables||0)+' tables sold · '+le(t.rev)+'</div></div>';}).join("")+'</div>':'<div class="card muted" style="text-align:center">No saved parties yet</div>');
+}
+function partyView(id){
+  var p=P[id],t=p.tot||{};
+  var gs=(p.groups||[]).map(function(g){return'<div class="g-row"><div class="t"><span class="code">'+esc(g.code)+'</span><span class="muted">'+g.names.filter(function(x){return x.i;}).length+'/'+g.names.length+' came</span></div><div>'+g.names.map(function(x){return(x.i?"✅ ":"")+esc(x.n);}).join(", ")+'</div></div>';}).join("");
+  var ts=(p.tables||[]).map(function(x){return'<div class="g-row"><div class="t"><span>'+esc(x.name)+'</span><b>'+le(x.total)+'</b></div>'+(x.sales||[]).map(function(y){return'<div class="muted">'+le(y.price)+(y.cust?" · "+esc(y.cust):"")+" "+hm(y.t)+'</div>';}).join("")+'</div>';}).join("");
+  return'<div class="card"><div class="row" style="margin-top:0"><button class="g" data-a="pback">← Back</button><span class="sp"></span><button class="g" data-a="prename">Rename</button><button class="d" data-a="pdel">Delete</button></div><div class="big" style="margin-top:10px">'+esc(p.name||"Party")+'</div><div class="muted">'+esc(p.date||"")+'</div></div>'+
+  '<div class="card"><div class="row" style="margin-top:0"><div class="sp"><div class="big">'+(t.guests||0)+'</div><div class="muted">booked</div></div><div class="sp"><div class="big">'+(t.came||0)+'</div><div class="muted">came</div></div><div class="sp"><div class="big">'+(t.res||0)+'</div><div class="muted">reservations</div></div></div></div>'+
+  '<div class="card"><strong>Tables sold</strong> <span class="muted">'+(t.tables||0)+' tables · '+(t.sales||t.tables||0)+' sales · total '+le(t.rev)+'</span>'+(ts||'<div class="muted" style="padding:8px 0">None</div>')+'</div>'+
+  '<div class="card"><strong>Reservations</strong>'+gs+'</div>';
+}
+function loginView(){
+  return'<h1>The Circle · Reservations</h1><div class="card" style="margin-top:14px"><label>Email</label><input id="em" type="email" autocomplete="username" autocapitalize="none" value="'+esc(lastEm)+'"><label style="margin-top:12px">Password</label><input id="pw" type="password" autocomplete="current-password"><div class="row"><button class="sp" data-a="login">Sign in</button></div><div style="margin-top:10px;color:var(--danger);font-size:14px">'+esc(loginErr)+'</div></div>';
+}
+function addView(){
+  return'<div class="card"><label>Guest names (comma or new line)</label><textarea id="names" placeholder="Enter names..."></textarea>'+
+  '<div class="row"><div class="muted sp">Next code: <b style="color:var(--accent)">G-'+ST.next+'</b></div><button data-a="add">Add group</button></div></div>';
+}
+function listView(){
+  var ql=q.toLowerCase(),gs=all().reverse().filter(function(g){return!ql||g.code.toLowerCase().indexOf(ql)>-1||g.names.some(function(x){return x.n.toLowerCase().indexOf(ql)>-1;});});
+  var total=0,inn=0;all().forEach(function(g){total+=g.names.length;inn+=arrived(g);});
+  return(admin?'<div class="card"><div class="big">'+total+'</div><div class="muted">total guests · '+all().length+' reservations · '+inn+' arrived</div></div>':'')+'<div class="card"><div class="row" style="margin-top:0"><input id="q" class="sp" placeholder="Search code or name" value="'+esc(q)+'"><button class="g" data-a="scan">Scan QR</button></div>'+(admin?'<div class="row"><button class="g sp" data-a="copylist">Copy master list</button></div>':'')+
+  '<div class="muted" style="margin:10px 0 4px">'+gs.length+' groups'+(admin?' · '+inn+'/'+total+' guests arrived':'')+'</div>'+
+  (gs.length?gs.map(function(g){return'<div class="g-row" data-a="open" data-c="'+g.code+'"><div class="t"><span class="code">'+g.code+'</span><span class="muted">'+arrived(g)+'/'+g.names.length+' arrived</span></div><div>'+g.names.map(function(x){return esc(x.n);}).join(", ")+'</div></div>';}).join(""):'<div class="muted" style="text-align:center;padding:14px">No groups</div>')+'</div>';
+}
+function setView(){
+  return'<div class="card"><label>Next group number</label><input id="nx" type="number" inputmode="numeric" value="'+ST.next+'">'+
+  '<label style="margin-top:12px">Message template ({code} and {guests} get filled in)</label><textarea id="tpl" style="min-height:170px">'+esc(ST.tpl)+'</textarea>'+
+  '<div class="row"><button class="g" data-a="tplreset">Reset template</button><span class="sp"></span><button class="d" data-a="clear">Start new day</button></div></div>'+'<div class="card"><label>Sales team emails (one per line). They can use the Tables page.</label><textarea id="sl" style="min-height:90px">'+esc(X.join("\n"))+'</textarea><div class="row"><button data-a="savesales">Save sales team</button></div></div>'+'<div class="card"><label>Import a list (code like G-45 on its own line, then one name per line, blank line between groups)</label><textarea id="imp" style="min-height:160px"></textarea><div class="row"><button data-a="import">Import list</button></div></div>';
+}
+function detailView(g){
+  if(editing){
+    return'<div class="card"><div class="row" style="margin-top:0"><button class="g" data-a="back">← Back</button></div><div class="big" style="margin:10px 0">'+g.code+'</div><label>Guest names (one per line)</label><textarea id="en" style="min-height:140px">'+esc(g.names.map(function(x){return x.n;}).join("\n"))+'</textarea><div class="row"><button data-a="saveedit">Save</button><button class="g" data-a="canceledit">Cancel</button></div></div>';
+  }
+  return'<div class="card"><div class="row" style="margin-top:0"><button class="g" data-a="back">← Back</button><span class="sp"></span>'+(admin?'<button class="g" data-a="edit">Edit</button><button class="d" data-a="del">Delete</button>':'')+'</div>'+
+  '<div class="big" style="margin-top:10px">'+g.code+'</div><div class="muted">'+arrived(g)+'/'+g.names.length+' arrived</div></div>'+
+  '<div class="card">'+g.names.map(function(x){var on=isIn(g,x);return'<label class="guest'+(on?" in":"")+'"><input type="checkbox" data-a="tick" data-id="'+x.id+'"'+(on?" checked":"")+'><span>'+esc(x.n)+'</span></label>';}).join("")+
+  '<div class="row"><button data-a="allin">Mark all arrived</button></div></div>'+
+  (admin?'<div class="card"><img class="qr" alt="QR '+g.code+'" src="'+qrUrl(g.code)+'"><div class="muted" style="text-align:center">Long-press the QR to save it</div><div class="row"><button class="sp" data-a="share">Share message + QR</button><button class="g" data-a="copy">Copy message</button></div></div>':'');
+}
+function render(){
+  pending=false;
+  if(!authReady){return;}
+  if(!U){app.innerHTML=loginView();var pw=document.getElementById("pw");if(pw)pw.onkeydown=function(e){if(e.key==="Enter")doLogin();};return;}
+  if(!ready){app.innerHTML='<div class="muted" style="padding:20px;text-align:center">Loading…</div>';return;}
+  var g=open&&G[open];if(open&&!g){open=null;editing=false;}
+  var h='<div class="row" style="margin:0 0 12px"><h1 class="sp">The Circle · Reservations</h1><button class="g" data-a="logout" style="padding:6px 10px;font-size:13px">Sign out</button></div>';
+  if((admin||sales)&&!g){h+='<div class="tabs">'+(admin?[["add","Add"],["list","List"],["tables","Tables"],["parties","Parties"],["set","Settings"]]:[["list","Master list"],["tables","Tables"]]).map(function(t){return'<button data-a="tab" data-t="'+t[0]+'" class="'+(tab===t[0]?"on":"")+'">'+t[1]+'</button>';}).join("")+'</div>';}
+  var pt=admin?tab:(sales&&tab==="tables"?"tables":"list");
+  if(g)h+=detailView(g);else if(pt==="list")h+=listView();else if(pt==="add")h+=addView();else if(pt==="tables")h+=tablesView();else if(pt==="parties")h+=(openP&&P[openP]?partyView(openP):partiesView());else h+=setView();
+  if(selT)h+=modalView();
+  if(ask)h='<div class="card" style="border-color:var(--danger)"><div>'+esc(ask.text)+'</div>'+(ask.input?'<input id="ask-in" placeholder="'+esc(ask.input)+'" value="'+esc(ask.val||"")+'" style="margin-top:10px">':'')+'<div class="row"><button class="d" data-a="yes">Yes, continue</button><button class="g" data-a="no">Cancel</button></div></div>'+h;
+  app.innerHTML=h;if(ask)window.scrollTo(0,0);
+  var ai=document.getElementById("ask-in");if(ai)ai.oninput=function(){ask.val=ai.value;};
+  var mn=document.getElementById("m-name");if(mn)mn.oninput=function(){draft.name=mn.value;};
+  var mp=document.getElementById("m-price");if(mp)mp.oninput=function(){draft.price=parseInt(mp.value,10)||0;};
+  var mc=document.getElementById("m-cust");if(mc)mc.oninput=function(){draft.cust=mc.value;};
+  var qi=document.getElementById("q");
+  if(qi)qi.oninput=function(){q=qi.value;var p=qi.selectionStart;render();var n=document.getElementById("q");n.focus();n.setSelectionRange(p,p);};
+  var nx=document.getElementById("nx");
+  if(nx)nx.onchange=function(){var v=parseInt(nx.value,10);if(!isNaN(v)&&v>=0)w(function(){return setDoc(R("settings","main"),{next:v,tpl:ST.tpl});});};
+  var tp=document.getElementById("tpl");
+  if(tp)tp.onchange=function(){var t=tp.value||DEF;w(function(){return setDoc(R("settings","main"),{next:ST.next,tpl:t}).then(function(){toast("Template saved");});});};
+}
+function refresh(){
+  var a=document.activeElement;
+  if(a&&(a.tagName==="TEXTAREA"||(a.tagName==="INPUT"&&a.type!=="checkbox"))){pending=true;return;}
+  render();
+}
+document.addEventListener("focusout",function(){setTimeout(function(){var a=document.activeElement;if(pending&&!(a&&(a.tagName==="TEXTAREA"||a.tagName==="INPUT")))render();},500);});
+
+function start(){
+  var got={g:false,a:false,s:false,x:false};
+  function done(k){got[k]=true;if(got.g&&got.a&&got.s&&got.x)ready=true;if(ready)refresh();}
+  function er(e){toast("Sync problem: "+((e&&e.code)||"error"));}
+  subs=[
+    onSnapshot(collection(db,"groups"),function(s){G={};s.forEach(function(d){G[d.id]=d.data();});done("g");},er),
+    onSnapshot(collection(db,"arrivals"),function(s){A={};s.forEach(function(d){A[d.id]=d.data();});done("a");},er),
+    onSnapshot(R("settings","main"),function(s){if(s.exists()){var d=s.data();ST={next:d.next||450,tpl:d.tpl||DEF};}done("s");},er),
+    onSnapshot(R("settings","access"),function(s){X=s.exists()?(s.data().sales||[]):[];var em=((U&&U.email)||"").toLowerCase();sales=X.map(function(e){return String(e).toLowerCase();}).indexOf(em)>-1;syncTables();done("x");},er)
+  ];
+}
+function stop(){subs.forEach(function(f){f();});subs=[];if(tsub){tsub();tsub=null;}if(psub){psub();psub=null;}P={};openP=null;G={};A={};T={};X=[];sales=false;ready=false;}
+onAuthStateChanged(auth,function(u){
+  stop();U=u;admin=!!u&&(u.email||"").toLowerCase()===ADMIN;
+  tab=admin?"add":"list";open=null;editing=false;ask=null;selT=null;draft=null;authReady=true;
+  if(u){start();loadJsQR();}render();
+});
+function doLogin(){
+  var em=document.getElementById("em").value.trim().toLowerCase(),pw=document.getElementById("pw").value;
+  lastEm=em;if(!em||!pw){loginErr="Enter your email and password.";render();return;}
+  loginErr="";
+  signInWithEmailAndPassword(auth,em,pw).catch(function(e){
+    var c=(e&&e.code)||"";
+    loginErr=c==="auth/invalid-credential"||c==="auth/wrong-password"||c==="auth/user-not-found"?"Wrong email or password.":c==="auth/network-request-failed"?"No connection. Check your internet.":c==="auth/unauthorized-domain"?"This website isn’t authorized yet in Firebase (Authentication > Settings > Authorized domains).":"Couldn’t sign in ("+c+").";
+    render();
+  });
+}
+
+var stream=null,timer=null;
+function stopscan(){clearInterval(timer);if(stream){stream.getTracks().forEach(function(t){t.stop();});stream=null;}document.getElementById("scan").style.display="none";}
+var JSQ=["https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js","https://unpkg.com/jsqr@1.4.0/dist/jsQR.js","https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"];
+function loadJsQR(cb){
+  if(window.jsQR){if(cb)cb(true);return;}
+  var i=0;
+  (function next(){
+    if(i>=JSQ.length){if(cb)cb(false);return;}
+    var sc=document.createElement("script");sc.src=JSQ[i++];
+    sc.onload=function(){if(window.jsQR){if(cb)cb(true);}else next();};
+    sc.onerror=next;
+    document.head.appendChild(sc);
+  })();
+}
+function scan(){
+  var box=document.getElementById("scan"),m=document.getElementById("scanmsg"),v=document.getElementById("vid");
+  box.style.display="flex";m.textContent="Point at a group’s QR code";
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){m.textContent="Camera isn’t available here. Use the search box and type the code.";return;}
+  var det=("BarcodeDetector" in window)?new BarcodeDetector({formats:["qr_code"]}):null;
+  if(!det&&!window.jsQR){m.textContent="Loading scanner…";loadJsQR(function(ok){if(ok)scan();else m.textContent="Couldn’t load the scanner. Check your internet and reload, or use the search box.";});return;}
+  var cv=document.createElement("canvas"),cx=cv.getContext("2d",{willReadFrequently:true});
+  function found(raw){var mt=String(raw).match(/G-\d+/i);if(!mt)return;var c=mt[0].toUpperCase();if(G[c]){stopscan();open=c;editing=false;render();}else{m.textContent=c+" not found";}}
+  navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}}).then(function(s){
+    stream=s;v.srcObject=s;v.play();
+    timer=setInterval(function(){
+      if(v.readyState<2)return;
+      if(det){det.detect(v).then(function(r){if(r.length)found(r[0].rawValue);}).catch(function(){});}
+      else{var w0=v.videoWidth,h0=v.videoHeight;if(!w0)return;var sc=Math.min(1,640/w0);cv.width=Math.round(w0*sc);cv.height=Math.round(h0*sc);cx.drawImage(v,0,0,cv.width,cv.height);var im=cx.getImageData(0,0,cv.width,cv.height),res=jsQR(im.data,im.width,im.height);if(res)found(res.data);}
+    },300);
+  }).catch(function(){m.textContent="Camera is blocked. Allow camera access for this site, or use the search box.";});
+}
+function tick(code,id,val){var o={};o[id]=val;return w(function(){return setDoc(R("arrivals",code),{in:o},{merge:true});});}
+document.addEventListener("click",function(e){
+  var el=e.target.closest("[data-a]");if(!el)return;
+  var a=el.getAttribute("data-a"),g=open&&G[open];
+  if(a==="tick")return;
+  if(a==="yes"){var av=document.getElementById("ask-in");av=av?av.value:"";var f=ask&&ask.fn;ask=null;if(f)f(av);render();return;}
+  if(a==="no"){ask=null;render();return;}
+  if(a==="login"){doLogin();}
+  else if(a==="logout"){signOut(auth);}
+  else if(a==="tab"){tab=el.getAttribute("data-t");openP=null;render();}
+  else if(a==="add"&&admin){
+    var ns=parse(document.getElementById("names").value);
+    if(!ns.length){toast("Enter at least one name");return;}
+    var n=ST.next,code="G-"+n;
+    if(G[code]){toast(code+" already exists. Change the next number in Settings.");return;}
+    el.disabled=true;
+    w(function(){
+      var names=ns.map(function(x){return{id:uid(),n:x};});
+      return setDoc(R("groups",code),{code:code,t:Date.now(),names:names})
+        .then(function(){return setDoc(R("arrivals",code),{in:{}});})
+        .then(function(){return setDoc(R("settings","main"),{next:n+1,tpl:ST.tpl});})
+        .then(function(){open=code;editing=false;toast(code+" saved");render();});
+    }).then(function(){el.disabled=false;});
+  }
+  else if(a==="open"){open=el.getAttribute("data-c");editing=false;render();}
+  else if(a==="back"){open=null;editing=false;render();}
+  else if(a==="copylist"){copy(all().map(function(g){return g.code+" :\n"+g.names.map(function(x){return x.n;}).join("\n");}).join("\n\n"));}
+  else if(a==="scan"){scan();}
+  else if(a==="stopscan"){stopscan();}
+  else if(a==="edit"){editing=true;render();}
+  else if(a==="canceledit"){editing=false;render();}
+  else if(a==="saveedit"&&g&&admin){
+    var ns2=parse(document.getElementById("en").value);
+    if(!ns2.length){toast("Keep at least one name");return;}
+    var names2=ns2.map(function(x){var o=g.names.filter(function(y){return y.n.toLowerCase()===x.toLowerCase();})[0];return{id:o?o.id:uid(),n:x};});
+    w(function(){return setDoc(R("groups",g.code),{code:g.code,t:g.t,names:names2}).then(function(){editing=false;render();});});
+  }
+  else if(a==="del"&&g&&admin){var c=g.code;ask={text:"Delete "+c+"?",fn:function(){w(function(){return deleteDoc(R("groups",c)).then(function(){return deleteDoc(R("arrivals",c));}).then(function(){open=null;render();});});}};render();}
+  else if(a==="allin"&&g){var o={};g.names.forEach(function(x){o[x.id]=true;});w(function(){return setDoc(R("arrivals",g.code),{in:o},{merge:true});});}
+  else if(a==="share"&&g){share(g);}
+  else if(a==="copy"&&g){copy(msg(g));}
+  else if(a==="tplreset"&&admin){w(function(){return setDoc(R("settings","main"),{next:ST.next,tpl:DEF}).then(function(){toast("Template reset");});});}
+  else if(a==="party"&&admin){openP=el.getAttribute("data-id");render();}
+  else if(a==="pback"){openP=null;render();}
+  else if(a==="prename"&&admin&&openP&&P[openP]){var rid=openP;ask={text:"Rename this party",input:"Party name",val:P[rid].name||"",fn:function(v){v=(v||"").trim();if(v)w(function(){return setDoc(R("parties",rid),{name:v},{merge:true});});}};render();}
+  else if(a==="pdel"&&admin&&openP&&P[openP]){var did=openP;ask={text:"Delete this saved party? This cannot be undone.",fn:function(){w(function(){return deleteDoc(R("parties",did)).then(function(){openP=null;render();});});}};render();}
+  else if(a==="table"&&(admin||sales)){var id0=el.getAttribute("data-id"),t0=TBL.filter(function(x){return x.id===id0;})[0],d0=T[id0]||{};selT=id0;draft={name:d0.name||t0.label,price:0,cust:"",confirm:false};render();}
+  else if(a==="chip"&&draft){draft.price=parseInt(el.getAttribute("data-p"),10);render();}
+  else if(a==="mclose"){selT=null;draft=null;render();}
+  else if(a==="msell"&&draft){if(!(draft.price>0)){toast("Pick or type a price");return;}draft.confirm=true;render();}
+  else if(a==="mback"&&draft){draft.confirm=false;render();}
+  else if(a==="mconfirm"&&selT&&draft&&(admin||sales)){
+    var sid=selT,dd=T[sid]||{},els=[];
+    if(!Array.isArray(dd.sales)&&(dd.price||0)>0)els.push({price:dd.price,cust:dd.cust||"",by:dd.by||"",t:dd.t||0});
+    els.push({price:draft.price,cust:(draft.cust||"").trim(),by:U.email,t:Date.now()});
+    selT=null;draft=null;render();
+    w(function(){return setDoc(R("tables",sid),{price:0,cust:"",sales:arrayUnion.apply(null,els)},{merge:true}).then(function(){toast("Sale saved");});});
+  }
+  else if(a==="mname"&&admin&&selT&&draft){var nm=(draft.name||"").trim(),nid=selT;if(!nm)return;w(function(){return setDoc(R("tables",nid),{name:nm},{merge:true}).then(function(){toast("Name saved");});});}
+  else if(a==="sdel"&&admin&&selT){var xi=parseInt(el.getAttribute("data-i"),10),xid=selT,rest;if(!confirm("Remove this sale?"))return;rest=salesOf(T[xid]||{}).filter(function(x,i){return i!==xi;});w(function(){return setDoc(R("tables",xid),{price:0,cust:"",sales:rest},{merge:true});});}
+  else if(a==="zin"){zoom=Math.min(2300,zoom+300);render();}
+  else if(a==="zout"){zoom=Math.max(600,zoom-300);render();}
+  else if(a==="savesales"&&admin){var sl=document.getElementById("sl").value.split(/[\n,]+/).map(function(x){return x.trim().toLowerCase();}).filter(function(x){return x.indexOf("@")>0;});w(function(){return setDoc(R("settings","access"),{sales:sl}).then(function(){toast("Sales team saved");});});}
+  else if(a==="import"&&admin){
+    var gl=parseList(document.getElementById("imp").value);
+    if(!gl.length){toast("Nothing to import. Check the format.");return;}
+    var add=gl.filter(function(x){return!G[x.code];}),skipped=gl.length-add.length;
+    if(!add.length){toast("Those codes already exist");return;}
+    el.disabled=true;
+    w(function(){
+      var p=Promise.resolve(),mx=0;
+      add.forEach(function(x){mx=Math.max(mx,num(x.code));var names=x.names.map(function(n){return{id:uid(),n:n};});
+        p=p.then(function(){return setDoc(R("groups",x.code),{code:x.code,t:Date.now(),names:names});}).then(function(){return setDoc(R("arrivals",x.code),{in:{}});});});
+      return p.then(function(){return setDoc(R("settings","main"),{next:Math.max(ST.next,mx+1),tpl:ST.tpl});}).then(function(){toast("Imported "+add.length+" groups"+(skipped?", skipped "+skipped+" existing":""));tab="list";render();});
+    }).then(function(){el.disabled=false;});
+  }
+  else if(a==="clear"&&admin){
+    ask={text:"Are you sure you want to reset the app for a new day? This party is saved in Parties first, then all codes, guests and table bookings are cleared and numbering starts again from G-450.",input:"Party name (e.g. Halloween)",fn:function(pn){
+      var cs=Object.keys(G);
+      w(function(){
+        var gl=all(),tl=[],came=0,guests=0,rev=0;
+        gl.forEach(function(g){guests+=g.names.length;came+=arrived(g);});
+        var nsales=0;TBL.forEach(function(t){var d=T[t.id]||{},a=salesOf(d);if(a.length){var tt=sumSales(a);tl.push({id:t.id,name:d.name||t.label,total:tt,sales:a.map(function(x){return{price:x.price,cust:x.cust||"",t:x.t||0};})});rev+=tt;nsales+=a.length;}});
+        var p=Promise.resolve();
+        if(gl.length||tl.length){
+          var snap=gl.map(function(g){return{code:g.code,names:g.names.map(function(x){return{n:x.n,i:isIn(g,x)};})};});
+          p=p.then(function(){return setDoc(R("parties","p"+Date.now()),{name:(pn||"").trim()||"Party",date:new Date().toLocaleDateString("en-CA"),t:Date.now(),groups:snap,tables:tl,tot:{res:gl.length,guests:guests,came:came,tables:tl.length,sales:nsales,rev:rev}});});
+        }
+        cs.forEach(function(c){p=p.then(function(){return deleteDoc(R("groups",c));}).then(function(){return deleteDoc(R("arrivals",c));});});
+        Object.keys(T).forEach(function(id){if(salesOf(T[id]).length||T[id].cust){p=p.then(function(){return setDoc(R("tables",id),{price:0,cust:"",sales:[]},{merge:true});});}});
+        return p.then(function(){return setDoc(R("settings","main"),{next:450,tpl:ST.tpl});}).then(function(){open=null;toast("Party saved. New day ready");render();});
+      });
+    }};render();
+  }
+});
+document.addEventListener("change",function(e){
+  var el=e.target;if(el.getAttribute&&el.getAttribute("data-a")==="tick"){var g=open&&G[open];if(g)tick(g.code,el.getAttribute("data-id"),el.checked);}
+});
+</script>
+</body>
+</html>
