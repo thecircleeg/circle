@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>The Circle – Reservations</title>
+<style>
+:root{--bg:#f6f5f2;--card:#fff;--text:#1a1a1a;--muted:#6b6b6b;--accent:#7c3aed;--accent-text:#fff;--border:#e2e0da;--danger:#c62828;--ok:#2e7d32;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root{--bg:#121212;--card:#1e1e1e;--text:#f2f2f2;--muted:#9a9a9a;--accent:#a78bfa;--accent-text:#121212;--border:#333;--danger:#ef5350;--ok:#66bb6a}}
+*{box-sizing:border-box}
+body{margin:0 auto;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:16px;max-width:560px}
+h1{font-size:20px;margin:0}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px}
+label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+textarea,input{width:100%;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px}
+textarea{min-height:90px;resize:vertical}
+button{font:inherit;border:0;border-radius:10px;padding:10px 14px;background:var(--accent);color:var(--accent-text);font-weight:600}
+button.g{background:transparent;color:var(--text);border:1px solid var(--border);font-weight:500}
+button.d{background:transparent;color:var(--danger);border:1px solid var(--border);font-weight:500}
+.tabs{display:flex;gap:6px;margin-bottom:14px}
+.tabs button{flex:1;background:var(--card);color:var(--muted);border:1px solid var(--border);font-weight:500}
+.tabs button.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent);font-weight:600}
+.row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.sp{flex:1}
+.muted{color:var(--muted);font-size:13px}
+.code{font-weight:700;font-size:18px;color:var(--accent)}
+.g-row{padding:10px 0;border-bottom:1px solid var(--border)}
+.g-row:last-child{border-bottom:0}
+.g-row .t{display:flex;justify-content:space-between;align-items:center}
+.guest{display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px solid var(--border);font-size:17px;color:var(--text);margin:0}
+.guest:last-child{border-bottom:0}
+.guest input{width:26px;height:26px;flex:none;padding:0}
+.guest.in span{color:var(--ok);font-weight:600}
+.big{font-size:28px;font-weight:800;color:var(--accent)}
+.qr{display:block;margin:12px auto;width:200px;height:200px;image-rendering:pixelated;border-radius:8px}
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--text);color:var(--bg);padding:10px 16px;border-radius:20px;font-size:14px;display:none;z-index:5}
+#scan{position:fixed;inset:0;background:#000;z-index:9;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:16px}
+#scan video{width:100%;max-width:420px;border-radius:12px}
+#scan p{color:#fff;text-align:center;margin:0}
+.tabs button{padding:10px 4px;font-size:13px}
+.tabs{overflow-x:auto}.tabs button{flex:0 0 auto;padding:10px 12px;white-space:nowrap}
+select{width:100%;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px}
+.bb{width:calc(50% - 4px);padding:22px 6px;font-size:22px;margin-bottom:8px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.chip{background:var(--bg);color:var(--text);border:1px solid var(--border);font-weight:600}
+.chip.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+#mod{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:8;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--card);width:100%;max-width:560px;max-height:88vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+.map{overflow:auto;border:1px solid var(--border);border-radius:12px;background:#fff;max-height:72vh}
+.map svg{display:block}
+.tb{cursor:pointer}
+</style>
+</head>
+<body>
+<div id="app"><div class="muted" style="padding:20px;text-align:center">Loading…</div></div>
+<div id="toast"></div>
+<div id="scan"><video id="vid" playsinline muted></video><p id="scanmsg"></p><button class="g" style="color:#fff" data-a="stopscan">Close</button></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script type="module">
+import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import{getAuth,onAuthStateChanged,signInWithEmailAndPassword,signOut}from"https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import{getFirestore,collection,doc,onSnapshot,setDoc,deleteDoc,arrayUnion}from"https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+var firebaseConfig={
+  apiKey:"AIzaSyAzUfZiNO-7aEKimw52aMRkZBXvM1RFL3I",
+  authDomain:"the-circle-c9fce.firebaseapp.com",
+  projectId:"the-circle-c9fce",
+  storageBucket:"the-circle-c9fce.firebasestorage.app",
+  messagingSenderId:"890675266023",
+  appId:"1:890675266023:web:aa05563f464cb2d53b3d42"
+};
+var ADMIN="saiff.tajj@gmail.com";
+var fapp=initializeApp(firebaseConfig),auth=getAuth(fapp),db=getFirestore(fapp);
+function R(p,id){return doc(db,p,id);}
+
+var DEF="✅ Reservation Confirmed\nReservation Code: {code}\nGuests:\n{guests}\n📍 Location: Zap Bar\nhttps://maps.app.goo.gl/NMfkqXoYAPWJCPSm7?g_st=ic\n👩 Ladies are free all night!\n🍸 Mixed groups or ladies groups coming before 2:00 get a free table!\n⏰ Party Time: 11:30 PM – 6:00 AM\n⚠️ Entry Policy: Mixed groups or ladies groups only. All members of the group must be present at the entrance to enter.\n🎟️ Please show your reservation code: {code} at the door.\nHave an amazing night! 🔥";
+var U=null,admin=false,authReady=false,loginErr="",lastEm="",G={},A={},ST={next:450,tpl:DEF},ready=false,subs=[];
+var sales=false,T={},X=[],tsub=null,selT=null,draft=null,zoom=1100,P={},psub=null,openP=null;
+var acc=false,XA=[],tabInit=false,EV={},evId=null,TX=[],GL=[],evsub=null,txsub=null,glsub=null,accTab="ov",accPay="cash",accLock={},evForm=false,B={gby:"Promoter",pl:"500",pf:"500"};
+var tab="add",open=null,editing=false,q="",pending=false,chain=Promise.resolve(),ask=null;
+var app=document.getElementById("app");
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
+function uid(){return Math.random().toString(36).slice(2,8);}
+function anorm(w){return w.replace(/[\u064B-\u065F\u0670\u0640]/g,"").replace(/[أإآ]/g,"ا").replace(/ى/g,"ي").replace(/ة/g,"ه").replace(/ؤ/g,"و").replace(/ئ/g,"ي");}
+var AR={};("محمد=Mohamed|احمد=Ahmed|علي=Ali|سيف=Saif|خالد=Khalid|عفاف=Afaf|ادريس=Idris|حنين=Haneen|حبيبة=Habiba|ابراهيم=Ibrahim|محمود=Mahmoud|لين=Leen|مريم=Mariam|دعاء=Doaa|اسراء=Israa|بكري=Bakri|صلاح=Salah|مصطفى=Mostafa|امجد=Amjad|عائشة=Aisha|ياسمين=Yasmin|يسرى=Yusra|نورة=Noura|هنا=Hana|هدى=Huda|هيا=Haya|عمر=Omar|عمرو=Amr|يوسف=Youssef|كريم=Karim|طارق=Tarek|حسن=Hassan|حسين=Hussein|فاطمة=Fatma|سارة=Sara|نور=Nour|منى=Mona|سلمى=Salma|ندى=Nada|رنا=Rana|ريم=Reem|ليلى=Layla|اية=Aya|اسماء=Asmaa|ايمان=Iman|امل=Amal|هبة=Heba|رحمة=Rahma|زينب=Zeinab|خديجة=Khadija|عبدالله=Abdullah|عبدالرحمن=Abdelrahman|عبد=Abdel|الله=Allah|ماجد=Majed|ماهر=Maher|سامي=Sami|سامر=Samer|رامي=Rami|زياد=Ziad|ياسر=Yasser|عادل=Adel|عماد=Emad|هشام=Hisham|وليد=Walid|وائل=Wael|بدر=Badr|فهد=Fahad|سعد=Saad|سعيد=Saeed|سلطان=Sultan|نادر=Nader|نادية=Nadia|لينا=Lina|دينا=Dina|شهد=Shahd|جنى=Jana|غادة=Ghada|ملك=Malak|روان=Rawan|رهف=Rahaf|بسمة=Basma|اسلام=Islam|عثمان=Osman|عمار=Ammar|انس=Anas|ايهاب=Ehab|نفيسة=Nafisa|اسامة=Osama|منال=Manal|هالة=Hala|ريما=Rima|اسماعيل=Ismail|ابو=Abo|يحيى=Yahya|عبيدة=Obeida|جاد=Gad|معاوية=Moawia|نازك=Nazik|وجدان=Wegdan|مرام=Maram|اصالة=Asala|ريان=Rayan|رزان=Razan|سندس=Sondos|عبير=Abeer|هدير=Hadeer|ضحى=Doha|ليان=Liyan|تسنيم=Tasneem|جميلة=Gamila|عزة=Azza|رنيم=Raneem|المتلثم=El-Malatham").split("|").forEach(function(p){var k=p.split("=");AR[anorm(k[0])]=k[1];});
+var LM={"ا":"a","ب":"b","ت":"t","ث":"th","ج":"j","ح":"h","خ":"kh","د":"d","ذ":"dh","ر":"r","ز":"z","س":"s","ش":"sh","ص":"s","ض":"d","ط":"t","ظ":"z","ع":"a","غ":"gh","ف":"f","ق":"q","ك":"k","ل":"l","م":"m","ن":"n","ه":"h","و":"w","ي":"y","ء":"a","گ":"g","پ":"p","چ":"ch","ڤ":"v"};
+function latWord(w){
+  var k=anorm(w);if(AR[k])return AR[k];
+  var out="",prev=false,i,ch,L,vow;
+  for(i=0;i<k.length;i++){ch=k.charAt(i);L=LM[ch];
+    if(L===undefined){out+=ch;prev=false;continue;}
+    vow=(ch==="ا"||ch==="و"||ch==="ي");
+    if(vow&&prev){out+=ch==="ا"?"a":ch==="و"?"o":"i";prev=false;}
+    else{if(!vow&&prev)out+="a";out+=L;prev=!(ch==="ا"||ch==="ع"||ch==="ء");}
+  }
+  return cap(out);
+}
+function latin(s){
+  if(!/[\u0600-\u06FF]/.test(s))return cap(s);
+  return s.split(/\s+/).map(function(w){return/[\u0600-\u06FF]/.test(w)?latWord(w):cap(w);}).join(" ");
+}
+function parse(t){return t.split(/[,\n،]+/).map(function(s){return latin(s.trim());}).filter(Boolean);}
+function num(c){return parseInt(c.slice(2),10)||0;}
+function parseList(t){var out=[],cur=null;t.split(/\r?\n/).forEach(function(l){l=l.replace(/[{}]/g,"").trim();if(!l)return;var m=l.match(/^G-?\s*(\d+)\s*:?$/i);if(m){cur={code:"G-"+m[1],names:[]};out.push(cur);}else if(cur){cur.names.push(latin(l));}});return out.filter(function(g){return g.names.length;});}
+function all(){return Object.keys(G).map(function(c){return G[c];}).sort(function(a,b){return num(a.code)-num(b.code);});}
+function isIn(g,x){var a=A[g.code];return!!(a&&a.in&&a.in[x.id]);}
+function arrived(g){return g.names.filter(function(x){return isIn(g,x);}).length;}
+function msg(g){return ST.tpl.replace(/\{code\}/g,g.code).replace("{guests}",g.names.map(function(x){return"• "+x.n;}).join("\n"));}
+function toast(t){var e=document.getElementById("toast");e.textContent=t;e.style.display="block";clearTimeout(toast.h);toast.h=setTimeout(function(){e.style.display="none";},2500);}
+function w(fn){chain=chain.then(fn).catch(function(e){toast(e&&e.code==="permission-denied"?"Permission denied. Check you are on the Sales team and the Firebase rules are updated.":"Couldn’t save: "+((e&&e.code)||"error"));});return chain;}
+function qrCanvas(text,size){
+  var qr=qrcode(0,"M");qr.addData(text);qr.make();
+  var n=qr.getModuleCount(),cell=Math.max(1,Math.floor(size/(n+8))),s=cell*(n+8);
+  var c=document.createElement("canvas");c.width=c.height=s;var x=c.getContext("2d");
+  x.fillStyle="#fff";x.fillRect(0,0,s,s);x.fillStyle="#000";
+  for(var r=0;r<n;r++)for(var k=0;k<n;k++)if(qr.isDark(r,k))x.fillRect((k+4)*cell,(r+4)*cell,cell,cell);
+  return c;
+}
+function qrUrl(code){try{return qrCanvas(code,600).toDataURL("image/png");}catch(e){return"";}}
+function copy(t){
+  try{if(navigator.clipboard){navigator.clipboard.writeText(t).then(function(){toast("Copied");},function(){fb(t);});return;}}catch(e){}
+  fb(t);
+}
+function fb(t){var a=document.createElement("textarea");a.value=t;document.body.appendChild(a);a.select();try{document.execCommand("copy");toast("Copied");}catch(e){toast("Copy failed");}a.remove();}
+function share(g){
+  var text=msg(g);
+  try{qrCanvas(g.code,600).toBlob(function(b){
+    var f=new File([b],g.code+".png",{type:"image/png"});
+    if(navigator.canShare&&navigator.canShare({files:[f]})){navigator.share({files:[f],text:text}).catch(function(e){if(!e||e.name!=="AbortError")copy(text);});}
+    else{copy(text);toast("Message copied. Long-press the QR to save it.");}
+  },"image/png");}catch(e){copy(text);}
+}
+
+var TBL=[];
+(function(){
+  var n=0;
+  function add(type,label,x,y){TBL.push({id:"t"+(++n),type:type,label:label,x:x,y:y});}
+  [[136,92],[419,92],[419,282],[417,838]].forEach(function(p,i){add("r","VIP HIGH "+(i+1),p[0],p[1]);});
+  [[137,282],[139,456],[417,458]].forEach(function(p,i){add("r","VIP DANCER "+(i+1),p[0],p[1]);});
+  add("h","HIGH TABLE",687,91);
+  [[686,485],[686,834]].forEach(function(p,i){add("l","Lounge "+(i+1),p[0],p[1]);});
+  [[1064,76],[943,225],[1073,223],[1414,213],[1593,402],[1115,838]].forEach(function(p,i){add("b","Round "+(i+1),p[0],p[1]);});
+  add("h","HIGH TABLE FOR 8",1412,76);
+  [["Table 1",1115,482],["Table 2",1115,660],["Table 3",1415,482],["Table 4",1416,660],["Table 6",1592,73],["Table 7",1590,211]].forEach(function(p){add("r",p[0],p[1],p[2]);});
+})();
+function salesOf(d){return Array.isArray(d.sales)?d.sales:((d.price||0)>0?[{price:d.price,cust:d.cust||"",by:d.by||"",t:d.t||0}]:[]);}
+function sumSales(a){return a.reduce(function(n,x){return n+(x.price||0);},0);}
+function le(n){return Number(n||0).toLocaleString()+" LE";}
+function hm(t){return t?new Date(t).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"";}
+function seat(p){return'<rect x="'+(p[0]-15)+'" y="'+(p[1]-13)+'" width="30" height="26" rx="8" fill="#1b3a6b"/>';}
+function tSvgOne(t){
+  var d=T[t.id]||{},name=d.name||t.label,sl=salesOf(d),price=sumSales(sl),booked=sl.length>0,x=t.x,y=t.y,body,sp,txt;
+  var ring=booked?' stroke="#ff9800" stroke-width="6"':'';
+  if(t.type==="r"){body='<ellipse cx="'+x+'" cy="'+y+'" rx="42" ry="40" fill="#f3e3cc"'+(booked?ring:' stroke="#d8c3a5" stroke-width="1.5"')+'/>';sp=[[x,y-54],[x,y+54],[x-52,y],[x+52,y]];txt="#111";}
+  else if(t.type==="b"){body='<ellipse cx="'+x+'" cy="'+y+'" rx="54" ry="40" fill="#0b57c4"'+ring+'/>';sp=[[x,y-52],[x,y+52],[x-66,y],[x+66,y]];txt="#fff";}
+  else{var bw=t.type==="l"?106:100,bh=t.type==="l"?62:76;
+    body='<rect x="'+(x-bw/2)+'" y="'+(y-bh/2)+'" width="'+bw+'" height="'+bh+'" rx="10" fill="'+(t.type==="l"?"#0f7a4a":"#1b3a6b")+'"'+ring+'/>';
+    sp=[[x-20,y-bh/2-14],[x+20,y-bh/2-14],[x-20,y+bh/2+14],[x+20,y+bh/2+14],[x-bw/2-16,y],[x+bw/2+16,y]];txt="#fff";}
+  var words=name.split(" "),lines=[name];
+  if(name.length>8&&words.length>1)lines=[words.slice(0,-1).join(" "),words[words.length-1]];
+  var longest=Math.max.apply(null,lines.map(function(l){return l.length;})),fs=longest>12?11:longest>9?13:longest>7?15:17;
+  var n=lines.length+(booked?1:0),lh=fs+4,s="";
+  lines.forEach(function(l,i){s+='<text x="'+x+'" y="'+(y+(i-(n-1)/2)*lh+fs*0.35)+'" text-anchor="middle" font-size="'+fs+'" font-weight="700" fill="'+txt+'">'+esc(l)+'</text>';});
+  if(booked)s+='<text x="'+x+'" y="'+(y+(lines.length-(n-1)/2)*lh+fs*0.35)+'" text-anchor="middle" font-size="'+fs+'" font-weight="800" fill="'+(txt==="#fff"?"#ffd54f":"#b45309")+'">'+(sl.length>1?price+" ×"+sl.length:price)+'</text>';
+  return'<g class="tb" data-a="table" data-id="'+t.id+'">'+sp.map(seat).join("")+body+s+'</g>';
+}
+function tSvg(){
+  var h='<rect x="1170" y="27" width="128" height="94" rx="8" fill="#e6e6e6" stroke="#bbb"/><text x="1234" y="79" text-anchor="middle" font-size="17" font-weight="700" fill="#222">Stage</text>'+
+  '<rect x="1170" y="238" width="128" height="94" rx="8" fill="#e6e6e6" stroke="#bbb"/><text x="1234" y="290" text-anchor="middle" font-size="15" font-weight="700" fill="#222">DANCE FLOOR</text>';
+  TBL.forEach(function(t){h+=tSvgOne(t);});
+  return'<svg viewBox="0 0 1688 930" width="'+zoom+'" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,sans-serif">'+h+'</svg>';
+}
+function tablesView(){
+  var tb=0,ns=0,sum=0;TBL.forEach(function(t){var a=salesOf(T[t.id]||{});if(a.length){tb++;ns+=a.length;sum+=sumSales(a);}});
+  return'<div class="card"><div class="row" style="margin-top:0"><div class="sp"><span class="big">'+tb+'</span> <span class="muted">of '+TBL.length+' tables sold · '+ns+' sales</span></div><button class="g" data-a="zout">−</button><button class="g" data-a="zin">+</button></div>'+(admin?'<div style="margin-top:8px"><span class="muted">Total money</span> <span class="big" style="font-size:22px">'+le(sum)+'</span></div>':'')+'<div class="muted" style="margin-top:6px">Tap a table to sell it. Scroll the map to move around.</div></div><div class="map">'+tSvg()+'</div>';
+}
+function modalView(){
+  var t=TBL.filter(function(x){return x.id===selT;})[0];if(!t||!draft)return"";
+  var d=T[t.id]||{},sl=salesOf(d),name=d.name||t.label,P0=[800,1000,1500,2000,2500];
+  var head='<div class="row" style="margin-top:0"><div class="big sp" style="font-size:22px">'+esc(name)+'</div><button class="g" data-a="mclose">Close</button></div>';
+  if(draft.confirm){
+    return'<div id="mod"><div class="sheet">'+head+'<div style="margin:18px 0;font-size:18px;line-height:1.5">You are selling <b>'+esc(name)+'</b> for <b>'+le(draft.price)+'</b>'+(draft.cust?' to <b>'+esc(draft.cust)+'</b>':'')+'.<br>Confirm?</div><div class="row"><button class="sp" data-a="mconfirm">Yes, confirm sale</button><button class="g" data-a="mback">Back</button></div></div></div>';
+  }
+  var hist=sl.length?'<div style="margin-top:12px"><label>Sales so far · total '+le(sumSales(sl))+'</label>'+sl.map(function(x,i){return'<div class="g-row"><div class="t"><span><b>'+le(x.price)+'</b>'+(x.cust?" · "+esc(x.cust):"")+' <span class="muted">'+hm(x.t)+'</span></span>'+(admin?'<button class="d" style="padding:4px 8px;font-size:12px" data-a="sdel" data-i="'+i+'">Remove</button>':'')+'</div></div>';}).join("")+'</div>':'';
+  var chips=P0.map(function(p){return'<button class="chip'+(draft.price===p?" on":"")+'" data-a="chip" data-p="'+p+'">'+p+'</button>';}).join("");
+  return'<div id="mod"><div class="sheet">'+head+
+  (admin?'<label style="margin-top:12px">Table name</label><div class="row" style="margin-top:0"><input id="m-name" class="sp" value="'+esc(draft.name)+'"><button class="g" data-a="mname">Save name</button></div>':'')+hist+
+  '<label style="margin-top:14px">'+(sl.length?"New sale · price (LE)":"Price (LE)")+'</label><div class="chips">'+chips+'</div><input id="m-price" type="number" inputmode="numeric" placeholder="Other price" value="'+(draft.price&&P0.indexOf(draft.price)<0?draft.price:"")+'">'+
+  '<label style="margin-top:12px">Sold to (optional)</label><input id="m-cust" value="'+esc(draft.cust)+'">'+
+  '<div class="row"><button class="sp" data-a="msell">Sell table</button></div></div></div>';
+}
+function syncTables(){
+  var want=admin||sales;
+  if(want&&!tsub){tsub=onSnapshot(collection(db,"tables"),function(s){T={};s.forEach(function(d){T[d.id]=d.data();});refresh();},function(e){toast("Tables: "+((e&&e.code)||"error"));});}
+  else if(!want&&tsub){tsub();tsub=null;T={};}
+  if(admin&&!psub){psub=onSnapshot(collection(db,"parties"),function(s){P={};s.forEach(function(d){P[d.id]=d.data();});refresh();},function(e){toast("Parties: "+((e&&e.code)||"error"));});}
+  else if(!admin&&psub){psub();psub=null;P={};}
+  syncAcc();
+}
+function partiesView(){
+  var ids=Object.keys(P).sort(function(a,b){return(P[b].t||0)-(P[a].t||0);});
+  return'<div class="card"><div class="muted">Every time you tap Start new day, that party is saved here. Each row shows guests booked – guests who came.</div></div>'+
+  (ids.length?'<div class="card">'+ids.map(function(id){var p=P[id],t=p.tot||{};return'<div class="g-row" data-a="party" data-id="'+id+'"><div class="t"><span class="code" style="color:var(--text)">'+esc(p.name||"Party")+'</span><span class="big" style="font-size:20px">'+(t.guests||0)+' – '+(t.came||0)+'</span></div><div class="muted">'+esc(p.date||"")+' · '+(t.res||0)+' reservations · '+(t.tables||0)+' tables sold · '+le(t.rev)+'</div></div>';}).join("")+'</div>':'<div class="card muted" style="text-align:center">No saved parties yet</div>');
+}
+function partyView(id){
+  var p=P[id],t=p.tot||{};
+  var gs=(p.groups||[]).map(function(g){return'<div class="g-row"><div class="t"><span class="code">'+esc(g.code)+'</span><span class="muted">'+g.names.filter(function(x){return x.i;}).length+'/'+g.names.length+' came</span></div><div>'+g.names.map(function(x){return(x.i?"✅ ":"")+esc(x.n);}).join(", ")+'</div></div>';}).join("");
+  var ts=(p.tables||[]).map(function(x){return'<div class="g-row"><div class="t"><span>'+esc(x.name)+'</span><b>'+le(x.total)+'</b></div>'+(x.sales||[]).map(function(y){return'<div class="muted">'+le(y.price)+(y.cust?" · "+esc(y.cust):"")+" "+hm(y.t)+'</div>';}).join("")+'</div>';}).join("");
+  return'<div class="card"><div class="row" style="margin-top:0"><button class="g" data-a="pback">← Back</button><span class="sp"></span><button class="g" data-a="prename">Rename</button><button class="d" data-a="pdel">Delete</button></div><div class="big" style="margin-top:10px">'+esc(p.name||"Party")+'</div><div class="muted">'+esc(p.date||"")+'</div></div>'+
+  '<div class="card"><div class="row" style="margin-top:0"><div class="sp"><div class="big">'+(t.guests||0)+'</div><div class="muted">booked</div></div><div class="sp"><div class="big">'+(t.came||0)+'</div><div class="muted">came</div></div><div class="sp"><div class="big">'+(t.res||0)+'</div><div class="muted">reservations</div></div></div></div>'+
+  '<div class="card"><strong>Tables sold</strong> <span class="muted">'+(t.tables||0)+' tables · '+(t.sales||t.tables||0)+' sales · total '+le(t.rev)+'</span>'+(ts||'<div class="muted" style="padding:8px 0">None</div>')+'</div>'+
+  '<div class="card"><strong>Reservations</strong>'+gs+'</div>';
+}
+function tabsList(){if(admin)return[["add","Add"],["list","List"],["tables","Tables"],["parties","Parties"],["acct","Accounting"],["set","Settings"]];var a=[["list","List"]];if(sales)a.push(["tables","Tables"]);if(acc)a.push(["acct","Accounting"]);return a;}
+function eg(n){return Number(n||0).toLocaleString()+" EGP";}
+function evOpen(){return!!(evId&&EV[evId]&&EV[evId].status==="open");}
+function accStop(){[evsub,txsub,glsub].forEach(function(f){if(f)f();});evsub=txsub=glsub=null;EV={};TX=[];GL=[];evId=null;}
+function syncAcc(){
+  var want=admin||acc;
+  if(want&&!evsub){evsub=onSnapshot(collection(db,"events"),function(s){EV={};s.forEach(function(d){EV[d.id]=d.data();});if(!evId){var sv="";try{sv=localStorage.getItem("circle_ev")||"";}catch(e){}if(sv&&EV[sv])pick(sv);}refresh();},function(e){toast("Events: "+((e&&e.code)||"error"));});}
+  else if(!want&&evsub){accStop();}
+}
+function pick(id){
+  if(txsub){txsub();txsub=null;}if(glsub){glsub();glsub=null;}
+  evId=id||null;TX=[];GL=[];
+  try{localStorage.setItem("circle_ev",id||"");}catch(e){}
+  if(!id)return;
+  txsub=onSnapshot(collection(db,"events",id,"tx"),function(s){if(evId!==id)return;TX=s.docs.map(function(d){var x=d.data();x.id=d.id;return x;}).sort(function(a,b){return(b.t||0)-(a.t||0);});refresh();},function(e){toast("Transactions: "+((e&&e.code)||"error"));});
+  glsub=onSnapshot(collection(db,"events",id,"guests"),function(s){if(evId!==id)return;GL=s.docs.map(function(d){var x=d.data();x.id=d.id;return x;}).sort(function(a,b){return String(a.name).localeCompare(String(b.name));});refresh();},function(e){toast("Guests: "+((e&&e.code)||"error"));});
+}
+function addTx(kind,cat,amount,custom){
+  var key=kind+cat+amount+(custom?"c":""),now=Date.now();
+  if(accLock[key]&&now-accLock[key]<450)return;accLock[key]=now;
+  var eid=evId,ref=doc(collection(db,"events",eid,"tx"));
+  var o={kind:kind,cat:cat,amount:amount,pay:amount>0?accPay:"none",by:U.email,t:now,voided:false};if(custom)o.custom=true;
+  toast("+ "+(amount>0?eg(amount):"free entry"));
+  w(function(){return setDoc(ref,o);});
+}
+function doVoid(id,reason){
+  var x=TX.filter(function(t){return t.id===id;})[0];if(!x||x.voided)return;
+  var eid=evId,ts=Date.now();
+  w(function(){return setDoc(doc(db,"events",eid,"tx",id),{voided:true,voidedBy:U.email,voidedAt:ts,voidReason:reason},{merge:true}).then(function(){return setDoc(doc(collection(db,"events",eid,"audit")),{type:"void",txId:id,original:{kind:x.kind,cat:x.cat,amount:x.amount,pay:x.pay,by:x.by,t:x.t},reason:reason,by:U.email,t:ts});});});
+}
+function accTot(){
+  var o={m:0,mr:0,mp:{},mc:{},ff:0,fp:0,fr:0,lb:0,lr:0,xb:0,xr:0,pay:{cash:0,card:0,other:0}};
+  TX.forEach(function(x){if(x.voided)return;var a=x.amount||0;if(a>0)o.pay[x.pay]=(o.pay[x.pay]||0)+a;
+    if(x.kind==="male"){o.m++;o.mr+=a;var m=x.custom?o.mc:o.mp;m[a]=(m[a]||0)+1;}
+    else if(x.kind==="female"){if(x.cat==="free")o.ff++;else{o.fp++;o.fr+=a;}}
+    else if(x.kind==="bottle"){if(x.cat==="local"){o.lb++;o.lr+=a;}else{o.xb++;o.xr+=a;}}});
+  var en=GL.filter(function(g){return g.status==="entered";});
+  o.ge=en.length;o.gm=en.filter(function(g){return g.gender==="Male";}).length;o.gf=en.filter(function(g){return g.gender==="Female";}).length;
+  o.ent=o.mr+o.fr;o.bot=o.lr+o.xr;o.grand=o.ent+o.bot;o.att=o.m+o.ff+o.fp+o.ge;
+  return o;
+}
+function stat(n,l){return'<div class="sp" style="text-align:center"><div class="big" style="font-size:24px">'+n+'</div><div class="muted">'+l+'</div></div>';}
+function rw(l,v,b){return'<div style="display:flex;justify-content:space-between;padding:5px 0'+(b?';font-weight:800;font-size:18px':'')+'"><span>'+l+'</span><span>'+v+'</span></div>';}
+function paySel(){return'<div class="chips">'+[["cash","CASH"],["card","CARD"],["other","OTHER"]].map(function(x){return'<button class="chip'+(accPay===x[0]?" on":"")+'" style="flex:1;padding:12px" data-a="paysel" data-p="'+x[0]+'">'+x[1]+'</button>';}).join("")+'</div>';}
+function txRow(x){
+  var d=x.kind==="male"?"Male entrance":x.kind==="female"?(x.cat==="free"?"Female FREE":"Female paid"):(x.cat==="local"?"Local":"Foreign")+" bottle";
+  var canV=!x.voided&&(admin||evOpen());
+  return'<div class="g-row"><div class="t"><span'+(x.voided?' style="opacity:.5;text-decoration:line-through"':'')+'>'+d+' · <b>'+eg(x.amount)+'</b>'+(x.amount>0?" · "+String(x.pay).toUpperCase():"")+'</span>'+(canV?'<button class="d" style="padding:4px 8px;font-size:12px" data-a="txvoid" data-id="'+x.id+'">Void</button>':"")+'</div><div class="muted">'+hm(x.t)+' · '+esc((x.by||"").split("@")[0])+(x.voided?" · voided: "+esc(x.voidReason||""):"")+'</div></div>';
+}
+function ovView(o){
+  return'<div class="card">'+rw("Male entrance",eg(o.mr))+rw("Female entrance",eg(o.fr))+rw("Total entrance",eg(o.ent),1)+rw("Local bottles",eg(o.lr))+rw("Foreign bottles",eg(o.xr))+rw("Total bottles",eg(o.bot),1)+'<div style="border-top:1px solid var(--border);margin-top:6px"></div>'+rw("GRAND TOTAL",eg(o.grand),1)+'</div>'+
+  '<div class="card"><b>Attendance</b>'+rw("Paying male",o.m)+rw("Free female",o.ff)+rw("Paying female",o.fp)+rw("Guest list entered",o.ge)+rw("TOTAL ATTENDANCE",o.att,1)+'</div>'+
+  '<div class="card"><b>Money collected</b>'+rw("Cash",eg(o.pay.cash))+rw("Card",eg(o.pay.card))+rw("Other",eg(o.pay.other))+rw("Total",eg(o.pay.cash+o.pay.card+o.pay.other),1)+'</div>'+
+  '<div class="card"><b>Recent transactions</b>'+(TX.length?TX.slice(0,15).map(txRow).join(""):'<div class="muted" style="padding:8px">None yet</div>')+'</div>';
+}
+function mlView(o,open){
+  var P5=[500,600,700,800],cs=Object.keys(o.mc).sort(function(a,b){return a-b;});
+  return paySel()+(open?'<div class="card"><div class="row" style="margin-top:0">'+P5.map(function(p){return'<button class="bb" data-a="tx" data-k="male" data-c="m" data-m="'+p+'">'+p+'<div style="font-size:13px;font-weight:500">× '+(o.mp[p]||0)+'</div></button>';}).join("")+'</div><label style="margin-top:6px">Extra / custom amount</label><div class="row" style="margin-top:0"><input class="sp" type="number" inputmode="numeric" placeholder="Amount" data-bind="cm" value="'+esc(B.cm||"")+'"><button data-a="txc" data-k="male" data-c="m" data-b="cm">Add</button></div></div>':'')+
+  '<div class="card">'+rw("Paying male guests",o.m)+P5.map(function(p){return rw(p+" × "+(o.mp[p]||0),eg(p*(o.mp[p]||0)));}).join("")+cs.map(function(a){return rw("Custom "+a+" × "+o.mc[a],eg(a*o.mc[a]));}).join("")+rw("Male revenue",eg(o.mr),1)+'</div>';
+}
+function fmView(o,open){
+  return paySel()+(open?'<div class="card"><button style="width:100%;padding:26px;font-size:22px" data-a="tx" data-k="female" data-c="free" data-m="0">FREE FEMALE ENTRY<div style="font-size:13px;font-weight:500">× '+o.ff+'</div></button><label style="margin-top:14px">Paid female entry</label><div class="chips">'+[200,300,500].map(function(p){return'<button class="chip" style="padding:14px 20px;font-size:18px" data-a="tx" data-k="female" data-c="paid" data-m="'+p+'">'+p+'</button>';}).join("")+'</div><div class="row" style="margin-top:0"><input class="sp" type="number" inputmode="numeric" placeholder="Other amount" data-bind="cf" value="'+esc(B.cf||"")+'"><button data-a="txc" data-k="female" data-c="paid" data-b="cf">Add</button></div></div>':'')+
+  '<div class="card">'+rw("Free female guests",o.ff)+rw("Paid female guests",o.fp)+rw("Total female attendance",o.ff+o.fp)+rw("Female revenue",eg(o.fr),1)+'</div>';
+}
+function btView(o,open){
+  return paySel()+[["local","LOCAL","pl",o.lb,o.lr],["foreign","FOREIGN","pf",o.xb,o.xr]].map(function(c){return'<div class="card"><div class="row" style="margin-top:0"><b class="sp">'+c[1]+' BOTTLES</b><span class="muted">'+c[3]+' sold · '+eg(c[4])+'</span></div>'+(open?'<label style="margin-top:10px">Selling price (EGP)</label><input type="number" inputmode="numeric" data-bind="'+c[2]+'" value="'+esc(B[c[2]])+'"><button style="width:100%;margin-top:10px;padding:18px;font-size:18px" data-a="txb" data-c="'+c[0]+'" data-b="'+c[2]+'">+ Add '+c[0]+' bottle</button>':'')+'</div>';}).join("")+
+  '<div class="card">'+rw("Total bottles",o.lb+o.xb)+rw("Total bottle revenue",eg(o.bot),1)+'</div>';
+}
+function glView(o,open){
+  var q=(B.gq||"").toLowerCase(),list=GL.filter(function(g){return!q||String(g.name).toLowerCase().indexOf(q)>-1;});
+  return'<div class="card"><div class="row" style="margin-top:0">'+stat(GL.length,"on list")+stat(o.ge,"entered")+stat(o.gm,"male in")+stat(o.gf,"female in")+stat(GL.length-o.ge,"not here")+'</div></div>'+
+  (open?'<div class="card"><label>Full name</label><input data-bind="gn" value="'+esc(B.gn||"")+'"><div class="chips">'+["Male","Female"].map(function(g){return'<button class="chip'+(B.gg===g?" on":"")+'" style="flex:1;padding:12px" data-a="ggen" data-g="'+g+'">'+g+'</button>';}).join("")+'</div><label>Invited by</label><select data-bind="gby">'+["Promoter","DJ","Artist","Management","Other"].map(function(x){return'<option'+(B.gby===x?" selected":"")+'>'+x+'</option>';}).join("")+'</select><label style="margin-top:8px">Note (optional)</label><input data-bind="gnote" value="'+esc(B.gnote||"")+'">'+(B.gdup?'<div style="color:var(--danger);margin-top:8px">A guest with this name is already on the list. Tap Add again to confirm.</div>':'')+'<div class="row"><button class="sp" data-a="gadd">Add to guest list</button></div></div>':'')+
+  '<div class="card"><input placeholder="Search guests" data-bind="gq" data-live="1" value="'+esc(B.gq||"")+'">'+(list.length?list.map(function(g){return'<div class="g-row"><div class="t"><span><b>'+esc(g.name)+'</b><div class="muted">'+esc(g.gender)+' · '+esc(g.by)+(g.note?" · "+esc(g.note):"")+'</div></span>'+(g.status==="entered"?'<span style="color:var(--ok)">✅ '+hm(g.enteredAt)+(open?' <button class="g" style="padding:2px 8px;font-size:12px" data-a="gundo" data-id="'+g.id+'">Undo</button>':'')+'</span>':(open?'<button data-a="gin" data-id="'+g.id+'">Entered</button>':'<span class="muted">Expected</span>'))+'</div></div>';}).join(""):'<div class="muted" style="padding:10px;text-align:center">No guests</div>')+'</div>';
+}
+function acctView(){
+  var evs=Object.keys(EV).sort(function(a,b){return String(EV[b].date||"").localeCompare(String(EV[a].date||""));});
+  var e=evId&&EV[evId],open=evOpen();
+  var h='<div class="card"><label>Event</label><select id="evsel"><option value="">Select an event…</option>'+evs.map(function(id){return'<option value="'+id+'"'+(id===evId?" selected":"")+'>'+esc(EV[id].name)+" · "+esc(EV[id].date||"")+(EV[id].status==="closed"?" (closed)":"")+'</option>';}).join("")+'</select>';
+  if(admin){h+='<div class="row">'+(e?(open?'<button class="d" data-a="evclose">Close event</button>':'<button class="g" data-a="evopen">Reopen</button>'):"")+'<button class="g" data-a="evnew">+ New event</button></div>';
+    if(evForm)h+='<label style="margin-top:12px">Event name</label><input data-bind="evn" value="'+esc(B.evn||"")+'"><label style="margin-top:8px">Date</label><input type="date" data-bind="evd" value="'+esc(B.evd||new Date().toLocaleDateString("en-CA"))+'"><div class="row"><button data-a="evmake">Create event</button></div>';}
+  h+='</div>';
+  if(!e)return h+'<div class="card muted" style="text-align:center">'+(evs.length?"Select an event to start.":(admin?"Create your first event.":"No events yet. Ask the admin to create one."))+'</div>';
+  if(!open)h+='<div class="card" style="border-color:var(--danger)">This event is closed. Records are read-only.</div>';
+  h+='<div class="tabs">'+[["ov","Overview"],["ml","Male"],["fm","Female"],["gl","Guests"],["bt","Bottles"]].map(function(t){return'<button data-a="atab" data-t="'+t[0]+'" class="'+(accTab===t[0]?"on":"")+'">'+t[1]+'</button>';}).join("")+'</div>';
+  if(open&&(accTab==="ml"||accTab==="fm"||accTab==="bt")){var lm=TX.filter(function(x){return x.by===U.email&&!x.voided;})[0];if(lm)h+='<div class="row" style="margin:0 0 10px"><button class="g sp" data-a="txundo" data-id="'+lm.id+'">↩ Undo last: '+eg(lm.amount)+'</button></div>';}
+  var o=accTot();
+  return h+(accTab==="ml"?mlView(o,open):accTab==="fm"?fmView(o,open):accTab==="gl"?glView(o,open):accTab==="bt"?btView(o,open):ovView(o));
+}
+function loginView(){
+  return'<h1>The Circle · Reservations</h1><div class="card" style="margin-top:14px"><label>Email</label><input id="em" type="email" autocomplete="username" autocapitalize="none" value="'+esc(lastEm)+'"><label style="margin-top:12px">Password</label><input id="pw" type="password" autocomplete="current-password"><div class="row"><button class="sp" data-a="login">Sign in</button></div><div style="margin-top:10px;color:var(--danger);font-size:14px">'+esc(loginErr)+'</div></div>';
+}
+function addView(){
+  return'<div class="card"><label>Guest names (comma or new line)</label><textarea id="names" placeholder="Enter names..."></textarea>'+
+  '<div class="row"><div class="muted sp">Next code: <b style="color:var(--accent)">G-'+ST.next+'</b></div><button data-a="add">Add group</button></div></div>';
+}
+function listView(){
+  var ql=q.toLowerCase(),gs=all().reverse().filter(function(g){return!ql||g.code.toLowerCase().indexOf(ql)>-1||g.names.some(function(x){return x.n.toLowerCase().indexOf(ql)>-1;});});
+  var total=0,inn=0;all().forEach(function(g){total+=g.names.length;inn+=arrived(g);});
+  return(admin?'<div class="card"><div class="big">'+total+'</div><div class="muted">total guests · '+all().length+' reservations · '+inn+' arrived</div></div>':'')+'<div class="card"><div class="row" style="margin-top:0"><input id="q" class="sp" placeholder="Search code or name" value="'+esc(q)+'"><button class="g" data-a="scan">Scan QR</button></div>'+(admin?'<div class="row"><button class="g sp" data-a="copylist">Copy master list</button></div>':'')+
+  '<div class="muted" style="margin:10px 0 4px">'+gs.length+' groups'+(admin?' · '+inn+'/'+total+' guests arrived':'')+'</div>'+
+  (gs.length?gs.map(function(g){return'<div class="g-row" data-a="open" data-c="'+g.code+'"><div class="t"><span class="code">'+g.code+'</span><span class="muted">'+arrived(g)+'/'+g.names.length+' arrived</span></div><div>'+g.names.map(function(x){return esc(x.n);}).join(", ")+'</div></div>';}).join(""):'<div class="muted" style="text-align:center;padding:14px">No groups</div>')+'</div>';
+}
+function setView(){
+  return'<div class="card"><label>Next group number</label><input id="nx" type="number" inputmode="numeric" value="'+ST.next+'">'+
+  '<label style="margin-top:12px">Message template ({code} and {guests} get filled in)</label><textarea id="tpl" style="min-height:170px">'+esc(ST.tpl)+'</textarea>'+
+  '<div class="row"><button class="g" data-a="tplreset">Reset template</button><span class="sp"></span><button class="d" data-a="clear">Start new day</button></div></div>'+'<div class="card"><label>Sales team emails (one per line). They can use the Tables page.</label><textarea id="sl" style="min-height:90px">'+esc(X.join("\n"))+'</textarea><div class="row"><button data-a="savesales">Save sales team</button></div></div>'+'<div class="card"><label>Accountants (one email per line). They can use the Accounting tab.</label><textarea id="ac" style="min-height:90px">'+esc(XA.join("\n"))+'</textarea><div class="row"><button data-a="saveacc">Save accountants</button></div></div>'+'<div class="card"><label>Import a list (code like G-45 on its own line, then one name per line, blank line between groups)</label><textarea id="imp" style="min-height:160px"></textarea><div class="row"><button data-a="import">Import list</button></div></div>';
+}
+function detailView(g){
+  if(editing){
+    return'<div class="card"><div class="row" style="margin-top:0"><button class="g" data-a="back">← Back</button></div><div class="big" style="margin:10px 0">'+g.code+'</div><label>Guest names (one per line)</label><textarea id="en" style="min-height:140px">'+esc(g.names.map(function(x){return x.n;}).join("\n"))+'</textarea><div class="row"><button data-a="saveedit">Save</button><button class="g" data-a="canceledit">Cancel</button></div></div>';
+  }
+  return'<div class="card"><div class="row" style="margin-top:0"><button class="g" data-a="back">← Back</button><span class="sp"></span>'+(admin?'<button class="g" data-a="edit">Edit</button><button class="d" data-a="del">Delete</button>':'')+'</div>'+
+  '<div class="big" style="margin-top:10px">'+g.code+'</div><div class="muted">'+arrived(g)+'/'+g.names.length+' arrived</div></div>'+
+  '<div class="card">'+g.names.map(function(x){var on=isIn(g,x);return'<label class="guest'+(on?" in":"")+'"><input type="checkbox" data-a="tick" data-id="'+x.id+'"'+(on?" checked":"")+'><span>'+esc(x.n)+'</span></label>';}).join("")+
+  '<div class="row"><button data-a="allin">Mark all arrived</button></div></div>'+
+  (admin?'<div class="card"><img class="qr" alt="QR '+g.code+'" src="'+qrUrl(g.code)+'"><div class="muted" style="text-align:center">Long-press the QR to save it</div><div class="row"><button class="sp" data-a="share">Share message + QR</button><button class="g" data-a="copy">Copy message</button></div></div>':'');
+}
+function render(){
+  pending=false;
+  if(!authReady){return;}
+  if(!U){app.innerHTML=loginView();var pw=document.getElementById("pw");if(pw)pw.onkeydown=function(e){if(e.key==="Enter")doLogin();};return;}
+  if(!ready){app.innerHTML='<div class="muted" style="padding:20px;text-align:center">Loading…</div>';return;}
+  var g=open&&G[open];if(open&&!g){open=null;editing=false;}
+  var h='<div class="row" style="margin:0 0 12px"><h1 class="sp">The Circle · Reservations</h1><button class="g" data-a="logout" style="padding:6px 10px;font-size:13px">Sign out</button></div>';
+  if(tabsList().length>1&&!g){h+='<div class="tabs">'+tabsList().map(function(t){return'<button data-a="tab" data-t="'+t[0]+'" class="'+(tab===t[0]?"on":"")+'">'+t[1]+'</button>';}).join("")+'</div>';}
+  var pt=tabsList().some(function(t){return t[0]===tab;})?tab:"list";
+  if(g)h+=detailView(g);else if(pt==="list")h+=listView();else if(pt==="add")h+=addView();else if(pt==="tables")h+=tablesView();else if(pt==="parties")h+=(openP&&P[openP]?partyView(openP):partiesView());else if(pt==="acct")h+=acctView();else h+=setView();
+  if(selT)h+=modalView();
+  if(ask)h='<div class="card" style="border-color:var(--danger)"><div>'+esc(ask.text)+'</div>'+(ask.input?'<input id="ask-in" placeholder="'+esc(ask.input)+'" value="'+esc(ask.val||"")+'" style="margin-top:10px">':'')+'<div class="row"><button class="d" data-a="yes">Yes, continue</button><button class="g" data-a="no">Cancel</button></div></div>'+h;
+  app.innerHTML=h;if(ask)window.scrollTo(0,0);
+  var ai=document.getElementById("ask-in");if(ai)ai.oninput=function(){ask.val=ai.value;};
+  var mn=document.getElementById("m-name");if(mn)mn.oninput=function(){draft.name=mn.value;};
+  var mp=document.getElementById("m-price");if(mp)mp.oninput=function(){draft.price=parseInt(mp.value,10)||0;};
+  var mc=document.getElementById("m-cust");if(mc)mc.oninput=function(){draft.cust=mc.value;};
+  document.querySelectorAll("[data-bind]").forEach(function(i){i.oninput=function(){var k=i.getAttribute("data-bind");B[k]=i.value;if(k==="gn")B.gdup=false;if(i.getAttribute("data-live")){var p=i.selectionStart;render();var n=document.querySelector('[data-bind="'+k+'"]');if(n){n.focus();try{n.setSelectionRange(p,p);}catch(e){}}}};});
+  var qi=document.getElementById("q");
+  if(qi)qi.oninput=function(){q=qi.value;var p=qi.selectionStart;render();var n=document.getElementById("q");n.focus();n.setSelectionRange(p,p);};
+  var nx=document.getElementById("nx");
+  if(nx)nx.onchange=function(){var v=parseInt(nx.value,10);if(!isNaN(v)&&v>=0)w(function(){return setDoc(R("settings","main"),{next:v,tpl:ST.tpl});});};
+  var tp=document.getElementById("tpl");
+  if(tp)tp.onchange=function(){var t=tp.value||DEF;w(function(){return setDoc(R("settings","main"),{next:ST.next,tpl:t}).then(function(){toast("Template saved");});});};
+}
+function refresh(){
+  var a=document.activeElement;
+  if(a&&(a.tagName==="TEXTAREA"||(a.tagName==="INPUT"&&a.type!=="checkbox"))){pending=true;return;}
+  render();
+}
+document.addEventListener("focusout",function(){setTimeout(function(){var a=document.activeElement;if(pending&&!(a&&(a.tagName==="TEXTAREA"||a.tagName==="INPUT")))render();},500);});
+
+function start(){
+  var got={g:false,a:false,s:false,x:false};
+  function done(k){got[k]=true;if(got.g&&got.a&&got.s&&got.x)ready=true;if(ready)refresh();}
+  function er(e){toast("Sync problem: "+((e&&e.code)||"error"));}
+  subs=[
+    onSnapshot(collection(db,"groups"),function(s){G={};s.forEach(function(d){G[d.id]=d.data();});done("g");},er),
+    onSnapshot(collection(db,"arrivals"),function(s){A={};s.forEach(function(d){A[d.id]=d.data();});done("a");},er),
+    onSnapshot(R("settings","main"),function(s){if(s.exists()){var d=s.data();ST={next:d.next||450,tpl:d.tpl||DEF};}done("s");},er),
+    onSnapshot(R("settings","access"),function(s){X=s.exists()?(s.data().sales||[]):[];var em=((U&&U.email)||"").toLowerCase();sales=X.map(function(e){return String(e).toLowerCase();}).indexOf(em)>-1;XA=s.exists()?(s.data().accountants||[]):[];acc=XA.map(function(e){return String(e).toLowerCase();}).indexOf(em)>-1;if(!tabInit){tabInit=true;if(acc&&!admin&&!sales)tab="acct";}syncTables();done("x");},er)
+  ];
+}
+function stop(){subs.forEach(function(f){f();});subs=[];if(tsub){tsub();tsub=null;}if(psub){psub();psub=null;}P={};openP=null;G={};A={};T={};X=[];sales=false;acc=false;XA=[];tabInit=false;accStop();ready=false;}
+onAuthStateChanged(auth,function(u){
+  stop();U=u;admin=!!u&&(u.email||"").toLowerCase()===ADMIN;
+  tab=admin?"add":"list";open=null;editing=false;ask=null;selT=null;draft=null;authReady=true;
+  if(u){start();loadJsQR();}render();
+});
+function doLogin(){
+  var em=document.getElementById("em").value.trim().toLowerCase(),pw=document.getElementById("pw").value;
+  lastEm=em;if(!em||!pw){loginErr="Enter your email and password.";render();return;}
+  loginErr="";
+  signInWithEmailAndPassword(auth,em,pw).catch(function(e){
+    var c=(e&&e.code)||"";
+    loginErr=c==="auth/invalid-credential"||c==="auth/wrong-password"||c==="auth/user-not-found"?"Wrong email or password.":c==="auth/network-request-failed"?"No connection. Check your internet.":c==="auth/unauthorized-domain"?"This website isn’t authorized yet in Firebase (Authentication > Settings > Authorized domains).":"Couldn’t sign in ("+c+").";
+    render();
+  });
+}
+
+var stream=null,timer=null;
+function stopscan(){clearInterval(timer);if(stream){stream.getTracks().forEach(function(t){t.stop();});stream=null;}document.getElementById("scan").style.display="none";}
+var JSQ=["https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js","https://unpkg.com/jsqr@1.4.0/dist/jsQR.js","https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"];
+function loadJsQR(cb){
+  if(window.jsQR){if(cb)cb(true);return;}
+  var i=0;
+  (function next(){
+    if(i>=JSQ.length){if(cb)cb(false);return;}
+    var sc=document.createElement("script");sc.src=JSQ[i++];
+    sc.onload=function(){if(window.jsQR){if(cb)cb(true);}else next();};
+    sc.onerror=next;
+    document.head.appendChild(sc);
+  })();
+}
+function scan(){
+  var box=document.getElementById("scan"),m=document.getElementById("scanmsg"),v=document.getElementById("vid");
+  box.style.display="flex";m.textContent="Point at a group’s QR code";
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){m.textContent="Camera isn’t available here. Use the search box and type the code.";return;}
+  var det=("BarcodeDetector" in window)?new BarcodeDetector({formats:["qr_code"]}):null;
+  if(!det&&!window.jsQR){m.textContent="Loading scanner…";loadJsQR(function(ok){if(ok)scan();else m.textContent="Couldn’t load the scanner. Check your internet and reload, or use the search box.";});return;}
+  var cv=document.createElement("canvas"),cx=cv.getContext("2d",{willReadFrequently:true});
+  function found(raw){var mt=String(raw).match(/G-\d+/i);if(!mt)return;var c=mt[0].toUpperCase();if(G[c]){stopscan();open=c;editing=false;render();}else{m.textContent=c+" not found";}}
+  navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}}).then(function(s){
+    stream=s;v.srcObject=s;v.play();
+    timer=setInterval(function(){
+      if(v.readyState<2)return;
+      if(det){det.detect(v).then(function(r){if(r.length)found(r[0].rawValue);}).catch(function(){});}
+      else{var w0=v.videoWidth,h0=v.videoHeight;if(!w0)return;var sc=Math.min(1,640/w0);cv.width=Math.round(w0*sc);cv.height=Math.round(h0*sc);cx.drawImage(v,0,0,cv.width,cv.height);var im=cx.getImageData(0,0,cv.width,cv.height),res=jsQR(im.data,im.width,im.height);if(res)found(res.data);}
+    },300);
+  }).catch(function(){m.textContent="Camera is blocked. Allow camera access for this site, or use the search box.";});
+}
+function tick(code,id,val){var o={};o[id]=val;return w(function(){return setDoc(R("arrivals",code),{in:o},{merge:true});});}
+document.addEventListener("click",function(e){
+  var el=e.target.closest("[data-a]");if(!el)return;
+  var a=el.getAttribute("data-a"),g=open&&G[open];
+  if(a==="tick")return;
+  if(a==="yes"){var av=document.getElementById("ask-in");av=av?av.value:"";var f=ask&&ask.fn;ask=null;if(f)f(av);render();return;}
+  if(a==="no"){ask=null;render();return;}
+  if(a==="login"){doLogin();}
+  else if(a==="logout"){signOut(auth);}
+  else if(a==="tab"){tab=el.getAttribute("data-t");openP=null;render();}
+  else if(a==="add"&&admin){
+    var ns=parse(document.getElementById("names").value);
+    if(!ns.length){toast("Enter at least one name");return;}
+    var n=ST.next,code="G-"+n;
+    if(G[code]){toast(code+" already exists. Change the next number in Settings.");return;}
+    el.disabled=true;
+    w(function(){
+      var names=ns.map(function(x){return{id:uid(),n:x};});
+      return setDoc(R("groups",code),{code:code,t:Date.now(),names:names})
+        .then(function(){return setDoc(R("arrivals",code),{in:{}});})
+        .then(function(){return setDoc(R("settings","main"),{next:n+1,tpl:ST.tpl});})
+        .then(function(){open=code;editing=false;toast(code+" saved");render();});
+    }).then(function(){el.disabled=false;});
+  }
+  else if(a==="open"){open=el.getAttribute("data-c");editing=false;render();}
+  else if(a==="back"){open=null;editing=false;render();}
+  else if(a==="copylist"){copy(all().map(function(g){return g.code+" :\n"+g.names.map(function(x){return x.n;}).join("\n");}).join("\n\n"));}
+  else if(a==="scan"){scan();}
+  else if(a==="stopscan"){stopscan();}
+  else if(a==="edit"){editing=true;render();}
+  else if(a==="canceledit"){editing=false;render();}
+  else if(a==="saveedit"&&g&&admin){
+    var ns2=parse(document.getElementById("en").value);
+    if(!ns2.length){toast("Keep at least one name");return;}
+    var names2=ns2.map(function(x){var o=g.names.filter(function(y){return y.n.toLowerCase()===x.toLowerCase();})[0];return{id:o?o.id:uid(),n:x};});
+    w(function(){return setDoc(R("groups",g.code),{code:g.code,t:g.t,names:names2}).then(function(){editing=false;render();});});
+  }
+  else if(a==="del"&&g&&admin){var c=g.code;ask={text:"Delete "+c+"?",fn:function(){w(function(){return deleteDoc(R("groups",c)).then(function(){return deleteDoc(R("arrivals",c));}).then(function(){open=null;render();});});}};render();}
+  else if(a==="allin"&&g){var o={};g.names.forEach(function(x){o[x.id]=true;});w(function(){return setDoc(R("arrivals",g.code),{in:o},{merge:true});});}
+  else if(a==="share"&&g){share(g);}
+  else if(a==="copy"&&g){copy(msg(g));}
+  else if(a==="tplreset"&&admin){w(function(){return setDoc(R("settings","main"),{next:ST.next,tpl:DEF}).then(function(){toast("Template reset");});});}
+  else if(a==="atab"){accTab=el.getAttribute("data-t");render();}
+  else if(a==="paysel"){accPay=el.getAttribute("data-p");render();}
+  else if(a==="tx"&&(admin||acc)&&evOpen()){addTx(el.getAttribute("data-k"),el.getAttribute("data-c"),parseInt(el.getAttribute("data-m"),10)||0,false);}
+  else if(a==="txc"&&(admin||acc)&&evOpen()){var bk=el.getAttribute("data-b"),cv=parseInt(B[bk],10);if(!(cv>0)){toast("Enter an amount");return;}addTx(el.getAttribute("data-k"),el.getAttribute("data-c"),cv,true);B[bk]="";render();}
+  else if(a==="txb"&&(admin||acc)&&evOpen()){var bb=el.getAttribute("data-b"),bpv=parseInt(B[bb],10);if(!(bpv>0)){toast("Enter a price");return;}addTx("bottle",el.getAttribute("data-c"),bpv,false);}
+  else if(a==="txundo"&&(admin||acc)&&evOpen()){doVoid(el.getAttribute("data-id"),"Wrong tap (undo)");}
+  else if(a==="txvoid"&&(admin||acc)){var vid=el.getAttribute("data-id");ask={text:"Void this transaction? It stays on record, marked as voided.",input:"Reason (required)",fn:function(v){v=(v||"").trim();if(!v){toast("A reason is required");return;}doVoid(vid,v);}};render();}
+  else if(a==="ggen"){B.gg=el.getAttribute("data-g");render();}
+  else if(a==="gadd"&&(admin||acc)&&evOpen()){
+    var gnm=latin((B.gn||"").trim());if(!gnm){toast("Enter a name");return;}if(!B.gg){toast("Select Male or Female");return;}
+    var dupg=GL.some(function(g){return String(g.name).toLowerCase()===gnm.toLowerCase();});
+    if(dupg&&!B.gdup){B.gdup=true;render();return;}
+    var geid=evId,gref=doc(collection(db,"events",geid,"guests")),go={name:gnm,gender:B.gg,by:B.gby||"Promoter",note:(B.gnote||"").trim(),status:"expected",t:Date.now(),addedBy:U.email};
+    B.gn="";B.gnote="";B.gdup=false;render();toast("Guest added");
+    w(function(){return setDoc(gref,go);});
+  }
+  else if(a==="gin"&&(admin||acc)&&evOpen()){var gi=el.getAttribute("data-id"),ge=evId;w(function(){return setDoc(doc(db,"events",ge,"guests",gi),{status:"entered",enteredAt:Date.now(),enteredBy:U.email},{merge:true});});}
+  else if(a==="gundo"&&(admin||acc)&&evOpen()){var gu=el.getAttribute("data-id"),gx=GL.filter(function(g){return g.id===gu;})[0],gev=evId;w(function(){return setDoc(doc(db,"events",gev,"guests",gu),{status:"expected",enteredAt:null,enteredBy:null},{merge:true}).then(function(){return setDoc(doc(collection(db,"events",gev,"audit")),{type:"uncheckin",guest:gx?gx.name:"",by:U.email,t:Date.now()});});});}
+  else if(a==="evnew"&&admin){evForm=!evForm;render();}
+  else if(a==="evmake"&&admin){
+    var en=(B.evn||"").trim(),ed=B.evd||new Date().toLocaleDateString("en-CA");if(!en){toast("Enter an event name");return;}
+    var er=doc(collection(db,"events"));
+    w(function(){return setDoc(er,{name:en,date:ed,status:"open",createdBy:U.email,t:Date.now()}).then(function(){evForm=false;B.evn="";pick(er.id);accTab="ov";render();});});
+  }
+  else if(a==="evclose"&&admin&&evId){var cid=evId;ask={text:"Close this event? No more transactions can be added to it.",fn:function(){w(function(){return setDoc(doc(db,"events",cid),{status:"closed",closedBy:U.email,closedAt:Date.now()},{merge:true});});}};render();}
+  else if(a==="evopen"&&admin&&evId){var oid=evId;w(function(){return setDoc(doc(db,"events",oid),{status:"open",reopenedBy:U.email,reopenedAt:Date.now()},{merge:true});});}
+  else if(a==="saveacc"&&admin){var al=document.getElementById("ac").value.split(/[\n,]+/).map(function(x){return x.trim().toLowerCase();}).filter(function(x){return x.indexOf("@")>0;});w(function(){return setDoc(R("settings","access"),{accountants:al},{merge:true}).then(function(){toast("Accountants saved");});});}
+  else if(a==="party"&&admin){openP=el.getAttribute("data-id");render();}
+  else if(a==="pback"){openP=null;render();}
+  else if(a==="prename"&&admin&&openP&&P[openP]){var rid=openP;ask={text:"Rename this party",input:"Party name",val:P[rid].name||"",fn:function(v){v=(v||"").trim();if(v)w(function(){return setDoc(R("parties",rid),{name:v},{merge:true});});}};render();}
+  else if(a==="pdel"&&admin&&openP&&P[openP]){var did=openP;ask={text:"Delete this saved party? This cannot be undone.",fn:function(){w(function(){return deleteDoc(R("parties",did)).then(function(){openP=null;render();});});}};render();}
+  else if(a==="table"&&(admin||sales)){var id0=el.getAttribute("data-id"),t0=TBL.filter(function(x){return x.id===id0;})[0],d0=T[id0]||{};selT=id0;draft={name:d0.name||t0.label,price:0,cust:"",confirm:false};render();}
+  else if(a==="chip"&&draft){draft.price=parseInt(el.getAttribute("data-p"),10);render();}
+  else if(a==="mclose"){selT=null;draft=null;render();}
+  else if(a==="msell"&&draft){if(!(draft.price>0)){toast("Pick or type a price");return;}draft.confirm=true;render();}
+  else if(a==="mback"&&draft){draft.confirm=false;render();}
+  else if(a==="mconfirm"&&selT&&draft&&(admin||sales)){
+    var sid=selT,dd=T[sid]||{},els=[];
+    if(!Array.isArray(dd.sales)&&(dd.price||0)>0)els.push({price:dd.price,cust:dd.cust||"",by:dd.by||"",t:dd.t||0});
+    els.push({price:draft.price,cust:(draft.cust||"").trim(),by:U.email,t:Date.now()});
+    selT=null;draft=null;render();
+    w(function(){return setDoc(R("tables",sid),{price:0,cust:"",sales:arrayUnion.apply(null,els)},{merge:true}).then(function(){toast("Sale saved");});});
+  }
+  else if(a==="mname"&&admin&&selT&&draft){var nm=(draft.name||"").trim(),nid=selT;if(!nm)return;w(function(){return setDoc(R("tables",nid),{name:nm},{merge:true}).then(function(){toast("Name saved");});});}
+  else if(a==="sdel"&&admin&&selT){var xi=parseInt(el.getAttribute("data-i"),10),xid=selT,rest;if(!confirm("Remove this sale?"))return;rest=salesOf(T[xid]||{}).filter(function(x,i){return i!==xi;});w(function(){return setDoc(R("tables",xid),{price:0,cust:"",sales:rest},{merge:true});});}
+  else if(a==="zin"){zoom=Math.min(2300,zoom+300);render();}
+  else if(a==="zout"){zoom=Math.max(600,zoom-300);render();}
+  else if(a==="savesales"&&admin){var sl=document.getElementById("sl").value.split(/[\n,]+/).map(function(x){return x.trim().toLowerCase();}).filter(function(x){return x.indexOf("@")>0;});w(function(){return setDoc(R("settings","access"),{sales:sl},{merge:true}).then(function(){toast("Sales team saved");});});}
+  else if(a==="import"&&admin){
+    var gl=parseList(document.getElementById("imp").value);
+    if(!gl.length){toast("Nothing to import. Check the format.");return;}
+    var add=gl.filter(function(x){return!G[x.code];}),skipped=gl.length-add.length;
+    if(!add.length){toast("Those codes already exist");return;}
+    el.disabled=true;
+    w(function(){
+      var p=Promise.resolve(),mx=0;
+      add.forEach(function(x){mx=Math.max(mx,num(x.code));var names=x.names.map(function(n){return{id:uid(),n:n};});
+        p=p.then(function(){return setDoc(R("groups",x.code),{code:x.code,t:Date.now(),names:names});}).then(function(){return setDoc(R("arrivals",x.code),{in:{}});});});
+      return p.then(function(){return setDoc(R("settings","main"),{next:Math.max(ST.next,mx+1),tpl:ST.tpl});}).then(function(){toast("Imported "+add.length+" groups"+(skipped?", skipped "+skipped+" existing":""));tab="list";render();});
+    }).then(function(){el.disabled=false;});
+  }
+  else if(a==="clear"&&admin){
+    ask={text:"Are you sure you want to reset the app for a new day? This party is saved in Parties first, then all codes, guests and table bookings are cleared and numbering starts again from G-450.",input:"Party name (e.g. Halloween)",fn:function(pn){
+      var cs=Object.keys(G);
+      w(function(){
+        var gl=all(),tl=[],came=0,guests=0,rev=0;
+        gl.forEach(function(g){guests+=g.names.length;came+=arrived(g);});
+        var nsales=0;TBL.forEach(function(t){var d=T[t.id]||{},a=salesOf(d);if(a.length){var tt=sumSales(a);tl.push({id:t.id,name:d.name||t.label,total:tt,sales:a.map(function(x){return{price:x.price,cust:x.cust||"",t:x.t||0};})});rev+=tt;nsales+=a.length;}});
+        var p=Promise.resolve();
+        if(gl.length||tl.length){
+          var snap=gl.map(function(g){return{code:g.code,names:g.names.map(function(x){return{n:x.n,i:isIn(g,x)};})};});
+          p=p.then(function(){return setDoc(R("parties","p"+Date.now()),{name:(pn||"").trim()||"Party",date:new Date().toLocaleDateString("en-CA"),t:Date.now(),groups:snap,tables:tl,tot:{res:gl.length,guests:guests,came:came,tables:tl.length,sales:nsales,rev:rev}});});
+        }
+        cs.forEach(function(c){p=p.then(function(){return deleteDoc(R("groups",c));}).then(function(){return deleteDoc(R("arrivals",c));});});
+        Object.keys(T).forEach(function(id){if(salesOf(T[id]).length||T[id].cust){p=p.then(function(){return setDoc(R("tables",id),{price:0,cust:"",sales:[]},{merge:true});});}});
+        return p.then(function(){return setDoc(R("settings","main"),{next:450,tpl:ST.tpl});}).then(function(){open=null;toast("Party saved. New day ready");render();});
+      });
+    }};render();
+  }
+});
+document.addEventListener("change",function(e){
+  var el=e.target;if(el.id==="evsel"){pick(el.value);render();return;}if(el.getAttribute&&el.getAttribute("data-a")==="tick"){var g=open&&G[open];if(g)tick(g.code,el.getAttribute("data-id"),el.checked);}
+});
+</script>
+</body>
+</html>
